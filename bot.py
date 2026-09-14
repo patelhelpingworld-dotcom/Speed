@@ -344,14 +344,22 @@ def home():
 def webhook():
     try:
         json_string = request.get_data().decode("utf-8")
+
+        logging.info(
+            "TELEGRAM UPDATE RECEIVED: %s",
+            json_string
+        )
+
         update = telebot.types.Update.de_json(json_string)
 
         bot.process_new_updates([update])
 
+        logging.info("UPDATE PROCESSED SUCCESSFULLY")
+
         return "OK", 200
 
     except Exception:
-        logging.exception("Webhook error")
+        logging.exception("WEBHOOK ERROR")
         return "ERROR", 500
 
 
@@ -363,9 +371,17 @@ def setup_webhook():
     webhook_address = f"{WEBHOOK_URL}/webhook"
 
     bot.remove_webhook()
-    bot.set_webhook(url=webhook_address)
 
-    logging.info("Webhook set: %s", webhook_address)
+    bot.set_webhook(
+        url=webhook_address,
+        allowed_updates=["message"]
+    )
+
+    logging.info(
+        "Webhook set successfully: %s",
+        webhook_address
+    )
+
 
 
 setup_webhook()
