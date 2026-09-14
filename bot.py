@@ -1546,7 +1546,7 @@ def add_balance_command(message):
             bot.send_message(
                 user_id,
 
-                "╔══════════════════╗\n"
+               f"╔══════════════════╗\n"
                 "   💰 BALANCE UPDATE\n"
                 "╚══════════════════╝\n\n"
 
