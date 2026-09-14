@@ -840,11 +840,9 @@ def show_referral(message):
         "👥 <b>Referral</b>\n\n"
         f"🔗 Your Referral Link:\n"
         f"<code>{link}</code>\n\n"
-        "💸 Reward: ₹20\n"
-        "User jab 3 mandatory channels join karke verification complete karega, tab ₹20 referral balance milega.\n\n"
+        "💸 Reward: ₹20 Per Refferal\n\n"
         f"🎁 Current Referral Balance: ₹{user['ref_balance']}\n\n"
         "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta.\n"
-        "Maximum 50% product price tak use ho sakta hai.",
         parse_mode="HTML"
     )
 
@@ -1021,26 +1019,7 @@ def send_purchase_confirmation(
         )
         return
 
-    # -----------------------------------------------------
-    # Rapid duplicate purchase protection
-    # -----------------------------------------------------
-
-    purchase_key = (user_id, product_id)
-
-    previous_time = recent_purchases.get(
-        purchase_key,
-        0
-    )
-
-    if time.time() - previous_time < 5:
-        bot.send_message(
-            message.chat.id,
-            "⏳ Please wait a few seconds."
-        )
-        return
-
-    recent_purchases[purchase_key] = time.time()
-
+    
     # -----------------------------------------------------
     # Load balance database
     # -----------------------------------------------------
