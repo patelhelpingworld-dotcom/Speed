@@ -2796,6 +2796,41 @@ def setup_webhook():
 
 setup_webhook()
 
+@bot.message_handler(commands=["checkjoin"])
+def checkjoin_command(message):
+    user_id = message.from_user.id
+
+    lines = [
+        "🔍 <b>Join Debug</b>",
+        f"User ID: <code>{user_id}</code>",
+        ""
+    ]
+
+    for channel in MANDATORY_CHANNELS:
+        try:
+            member = bot.get_chat_member(
+                channel["id"],
+                user_id
+            )
+
+            lines.append(
+                f"{channel['name']}:\n"
+                f"ID: <code>{channel['id']}</code>\n"
+                f"Status: <b>{member.status}</b>\n"
+            )
+
+        except Exception as e:
+            lines.append(
+                f"{channel['name']}:\n"
+                f"ID: <code>{channel['id']}</code>\n"
+                f"❌ ERROR: <code>{str(e)[:300]}</code>\n"
+            )
+
+    bot.send_message(
+        message.chat.id,
+        "\n".join(lines),
+        parse_mode="HTML"
+    )
 
 if __name__ == "__main__":
     port = int(
