@@ -842,7 +842,7 @@ def show_referral(message):
         f"<code>{link}</code>\n\n"
         "💸 Reward: ₹20 Per Referral\n\n"
         f"🎁 Current Referral Balance: ₹{user['ref_balance']}\n\n"
-        "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta.\n"
+        "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta.\n",
         parse_mode="HTML"
     )
 
@@ -1248,13 +1248,6 @@ def send_purchase_confirmation(
         )
     )
 
-    referral_text = ""
-
-    if reward_given:
-        referral_text = (
-            "\n\n🎉 Your referrer received ₹20 reward!"
-        )
-
     coupon_text = ""
 
     if coupon:
@@ -1274,47 +1267,9 @@ def send_purchase_confirmation(
         f"💳 Paid From Main Balance: ₹{main_balance_needed}\n\n"
         "🔐 Your private access link is ready.\n"
         "⏱ Link expires in 24 hours.\n"
-        "👤 Link can be used by 1 member only."
-        f"{referral_text}",
+        "👤 Link can be used by 1 member only.",
         parse_mode="HTML",
         reply_markup=markup
-    )
-
-
-# =========================================================
-# PRODUCT PURCHASE HANDLERS
-# =========================================================
-
-@bot.message_handler(
-    func=lambda message:
-        message.text == "🛒 Buy Product 1"
-)
-def buy_product_1(message):
-    send_purchase_confirmation(
-        message,
-        1
-    )
-
-
-@bot.message_handler(
-    func=lambda message:
-        message.text == "🛒 Buy Product 2"
-)
-def buy_product_2(message):
-    send_purchase_confirmation(
-        message,
-        2
-    )
-
-
-@bot.message_handler(
-    func=lambda message:
-        message.text == "🛒 Buy Product 3"
-)
-def buy_product_3(message):
-    send_purchase_confirmation(
-        message,
-        3
     )
 
 
