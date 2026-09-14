@@ -1359,7 +1359,7 @@ def start_add_funds(
 
     text = (
         "╔════════════════╗\n"
-        "         💳 ADD FUNDS\n"
+        "     💳 ADD FUNDS\n"
         "╚════════════════╝\n\n"
 
         "💰 Enter the amount you want to add.\n\n"
@@ -1385,7 +1385,7 @@ def send_payment_qr(
 
     text = (
         "╔═══════════════╗\n"
-        "          💳 PAYMENT\n"
+        "     💳 PAYMENT\n"
         "╚═══════════════╝\n\n"
 
         f"💵 Amount: ₹{amount}\n\n"
@@ -1531,7 +1531,7 @@ def add_balance_command(message):
             message.chat.id,
 
             "╔══════════════════╗\n"
-            "       ✅ BALANCE ADDED\n"
+            "    ✅ BALANCE ADDED\n"
             "╚══════════════════╝\n\n"
 
             f"👤 User ID: {user_id}\n"
@@ -1547,7 +1547,7 @@ def add_balance_command(message):
                 user_id,
 
                 "╔══════════════════╗\n"
-                "       💰 BALANCE UPDATE\n"
+                "   💰 BALANCE UPDATE\n"
                 "╚══════════════════╝\n\n"
 
                 f"✅ Added: ₹{amount}\n"
