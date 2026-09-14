@@ -840,7 +840,7 @@ def show_referral(message):
         "👥 <b>Referral</b>\n\n"
         f"🔗 Your Referral Link:\n"
         f"<code>{link}</code>\n\n"
-        "💸 Reward: ₹20 Per Refferal\n\n"
+        "💸 Reward: ₹20 Per Referral\n\n"
         f"🎁 Current Referral Balance: ₹{user['ref_balance']}\n\n"
         "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta.\n"
         parse_mode="HTML"
