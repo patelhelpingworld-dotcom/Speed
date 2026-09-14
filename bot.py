@@ -1,11 +1,11 @@
 ```python
 import os
-import logging
+import re
+import time
 import secrets
-from datetime import datetime, timezone
+import logging
+import threading
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import telebot
 from telebot import types
 
@@ -14,9 +14,22 @@ from telebot import types
 # CONFIG
 # =========================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_NEW_BOT_TOKEN")
+
+# Telegram user ID of the only admin allowed to /add
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1006157952"))
+
+# Private channel ID
+# Example: -1001234567890
+CHANNEL_ID = int(
+    os.getenv("CHANNEL_ID", "-1000000000000")
+)
+
+# Message ID of the BALANCE DATABASE message
+# Create one message manually in your private channel.
+BALANCE_MESSAGE_ID = int(
+    os.getenv("BALANCE_MESSAGE_ID", "1")
+)
 
 QR_CODE_URL = (
     "https://i.ibb.co/7JzK1hRv/"
@@ -37,376 +50,234 @@ logger = logging.getLogger("SpeedFistt")
 
 
 # =========================================================
-# VALIDATE CONFIG
+# BOT
 # =========================================================
-
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN environment variable is missing.")
-
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable is missing.")
-
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-
-# =========================================================
-# DATABASE
-# =========================================================
-
-def get_db():
-    return psycopg2.connect(
-        DATABASE_URL,
-        connect_timeout=10
-    )
-
-
-def now():
-    return datetime.now(timezone.utc)
-
-
-def init_database():
-
-    conn = get_db()
-
-    try:
-        with conn.cursor() as cursor:
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    username TEXT DEFAULT '',
-                    first_name TEXT DEFAULT '',
-                    balance BIGINT NOT NULL DEFAULT 0,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL
-                )
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS transactions (
-                    id BIGSERIAL PRIMARY KEY,
-                    txn_id TEXT UNIQUE NOT NULL,
-                    user_id BIGINT NOT NULL,
-                    txn_type TEXT NOT NULL,
-                    amount BIGINT NOT NULL,
-                    balance_after BIGINT NOT NULL,
-                    product TEXT DEFAULT '',
-                    note TEXT DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL
-                )
-            """)
-
-        conn.commit()
-
-    finally:
-        conn.close()
-
-    logger.info("PostgreSQL database initialized.")
+# Prevent two balance operations from modifying the
+# balance message at exactly the same time.
+balance_lock = threading.Lock()
 
 
 # =========================================================
-# USER MANAGEMENT
-# =========================================================
-
-def register_user(message):
-
-    user = message.from_user
-
-    conn = get_db()
-
-    try:
-        with conn.cursor() as cursor:
-
-            cursor.execute("""
-                INSERT INTO users (
-                    user_id,
-                    username,
-                    first_name,
-                    balance,
-                    created_at,
-                    updated_at
-                )
-                VALUES (%s, %s, %s, 0, %s, %s)
-                ON CONFLICT (user_id)
-                DO UPDATE SET
-                    username = EXCLUDED.username,
-                    first_name = EXCLUDED.first_name,
-                    updated_at = EXCLUDED.updated_at
-            """, (
-                user.id,
-                user.username or "",
-                user.first_name or "",
-                now(),
-                now()
-            ))
-
-        conn.commit()
-
-    finally:
-        conn.close()
-
-
-def ensure_user(user_id):
-
-    conn = get_db()
-
-    try:
-        with conn.cursor() as cursor:
-
-            cursor.execute("""
-                INSERT INTO users (
-                    user_id,
-                    balance,
-                    created_at,
-                    updated_at
-                )
-                VALUES (%s, 0, %s, %s)
-                ON CONFLICT (user_id) DO NOTHING
-            """, (
-                user_id,
-                now(),
-                now()
-            ))
-
-        conn.commit()
-
-    finally:
-        conn.close()
-
-
-def get_balance(user_id):
-
-    ensure_user(user_id)
-
-    conn = get_db()
-
-    try:
-        with conn.cursor(
-            cursor_factory=RealDictCursor
-        ) as cursor:
-
-            cursor.execute("""
-                SELECT balance
-                FROM users
-                WHERE user_id = %s
-            """, (user_id,))
-
-            row = cursor.fetchone()
-
-            return int(row["balance"])
-
-    finally:
-        conn.close()
-
-
-# =========================================================
-# TRANSACTION ID
+# BASIC HELPERS
 # =========================================================
 
 def generate_txn_id():
+    return "SF-" + secrets.token_hex(5).upper()
 
-    return "SF-" + secrets.token_hex(6).upper()
 
-
-# =========================================================
-# CREDIT BALANCE
-# =========================================================
-
-def credit_balance(
-    user_id,
-    amount,
-    note="Admin credit"
-):
-
-    ensure_user(user_id)
-
-    conn = get_db()
-
+def clean_number(value):
     try:
-        # Transaction starts automatically.
-        with conn.cursor(
-            cursor_factory=RealDictCursor
-        ) as cursor:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
-            # Lock user's row.
-            cursor.execute("""
-                SELECT balance
-                FROM users
-                WHERE user_id = %s
-                FOR UPDATE
-            """, (user_id,))
 
-            row = cursor.fetchone()
+# =========================================================
+# CHANNEL DATABASE
+# =========================================================
 
-            if not row:
-                raise ValueError("User not found.")
+def get_balance_database_text():
+    """
+    Reads the fixed balance message from the private channel.
+    """
 
-            old_balance = int(row["balance"])
-            new_balance = old_balance + amount
+    message = bot.forward_message(
+        chat_id=CHANNEL_ID,
+        from_chat_id=CHANNEL_ID,
+        message_id=BALANCE_MESSAGE_ID
+    )
 
-            txn_id = generate_txn_id()
-
-            cursor.execute("""
-                UPDATE users
-                SET balance = %s,
-                    updated_at = %s
-                WHERE user_id = %s
-            """, (
-                new_balance,
-                now(),
-                user_id
-            ))
-
-            cursor.execute("""
-                INSERT INTO transactions (
-                    txn_id,
-                    user_id,
-                    txn_type,
-                    amount,
-                    balance_after,
-                    product,
-                    note,
-                    created_at
-                )
-                VALUES (
-                    %s,
-                    %s,
-                    'CREDIT',
-                    %s,
-                    %s,
-                    '',
-                    %s,
-                    %s
-                )
-            """, (
-                txn_id,
-                user_id,
-                amount,
-                new_balance,
-                note,
-                now()
-            ))
-
-        conn.commit()
-
-        return txn_id, new_balance
-
-    except Exception:
-
-        conn.rollback()
-
-        logger.exception(
-            "Credit transaction failed."
+    # The forwarded message contains the original text.
+    # Delete the temporary forwarded copy afterwards.
+    try:
+        bot.delete_message(
+            CHANNEL_ID,
+            message.message_id
         )
+    except Exception:
+        pass
 
-        raise
-
-    finally:
-        conn.close()
+    return message.text or ""
 
 
-# =========================================================
-# DEBIT BALANCE
-# =========================================================
+def read_balances():
+    """
+    Expected balance database format:
 
-def debit_balance(
-    user_id,
-    amount,
-    product_name
-):
+    SPEEDFISTT BALANCE DATABASE
 
-    ensure_user(user_id)
+    USER: 123456789 | BALANCE: 500
+    USER: 987654321 | BALANCE: 1200
+    """
 
-    conn = get_db()
+    text = get_balance_database_text()
 
-    try:
-        with conn.cursor(
-            cursor_factory=RealDictCursor
-        ) as cursor:
+    balances = {}
 
-            cursor.execute("""
-                SELECT balance
-                FROM users
-                WHERE user_id = %s
-                FOR UPDATE
-            """, (user_id,))
+    pattern = r"USER:\s*(\d+)\s*\|\s*BALANCE:\s*(-?\d+)"
 
-            row = cursor.fetchone()
+    for match in re.finditer(pattern, text):
+        user_id = int(match.group(1))
+        balance = int(match.group(2))
 
-            if not row:
-                return False, 0, None
+        balances[user_id] = balance
 
-            current_balance = int(
-                row["balance"]
+    return balances
+
+
+def create_balance_database_text(balances):
+    """
+    Creates the complete balance message text.
+    """
+
+    lines = [
+        "💰 SPEEDFISTT BALANCE DATABASE",
+        "",
+        "⚠️ DO NOT EDIT THIS MESSAGE MANUALLY",
+        ""
+    ]
+
+    if not balances:
+        lines.append("NO USERS YET")
+    else:
+
+        for user_id in sorted(balances):
+
+            lines.append(
+                f"USER: {user_id} | BALANCE: {balances[user_id]}"
             )
 
+    return "\n".join(lines)
+
+
+def save_balances(balances):
+    """
+    Updates the fixed balance database message.
+    """
+
+    new_text = create_balance_database_text(
+        balances
+    )
+
+    bot.edit_message_text(
+        chat_id=CHANNEL_ID,
+        message_id=BALANCE_MESSAGE_ID,
+        text=new_text
+    )
+
+
+def get_user_balance(user_id):
+
+    with balance_lock:
+
+        balances = read_balances()
+
+        return balances.get(user_id, 0)
+
+
+def update_user_balance(
+    user_id,
+    amount,
+    operation
+):
+    """
+    operation:
+        CREDIT
+        DEBIT
+
+    Returns:
+        success, new_balance
+    """
+
+    with balance_lock:
+
+        balances = read_balances()
+
+        current_balance = balances.get(
+            user_id,
+            0
+        )
+
+        if operation == "CREDIT":
+
+            new_balance = (
+                current_balance + amount
+            )
+
+        elif operation == "DEBIT":
+
             if current_balance < amount:
-                return False, current_balance, None
+                return False, current_balance
 
             new_balance = (
                 current_balance - amount
             )
 
-            txn_id = generate_txn_id()
+        else:
 
-            cursor.execute("""
-                UPDATE users
-                SET balance = %s,
-                    updated_at = %s
-                WHERE user_id = %s
-            """, (
-                new_balance,
-                now(),
-                user_id
-            ))
+            raise ValueError(
+                "Invalid balance operation"
+            )
 
-            cursor.execute("""
-                INSERT INTO transactions (
-                    txn_id,
-                    user_id,
-                    txn_type,
-                    amount,
-                    balance_after,
-                    product,
-                    note,
-                    created_at
-                )
-                VALUES (
-                    %s,
-                    %s,
-                    'DEBIT',
-                    %s,
-                    %s,
-                    %s,
-                    'Product purchase',
-                    %s
-                )
-            """, (
-                txn_id,
-                user_id,
-                amount,
-                new_balance,
-                product_name,
-                now()
-            ))
+        balances[user_id] = new_balance
 
-        conn.commit()
+        save_balances(balances)
 
-        return True, new_balance, txn_id
+        return True, new_balance
+
+
+# =========================================================
+# CHANNEL AUDIT LOG
+# =========================================================
+
+def send_audit_log(
+    txn_type,
+    user_id,
+    amount,
+    new_balance,
+    product="",
+    note=""
+):
+
+    txn_id = generate_txn_id()
+
+    if txn_type == "CREDIT":
+        icon = "🟢"
+    else:
+        icon = "🔴"
+
+    text = (
+        f"{icon} SPEEDFISTT TRANSACTION\n\n"
+        f"TXN: {txn_id}\n"
+        f"TYPE: {txn_type}\n"
+        f"USER: {user_id}\n"
+        f"AMOUNT: ₹{amount}\n"
+        f"BALANCE: ₹{new_balance}\n"
+    )
+
+    if product:
+        text += f"PRODUCT: {product}\n"
+
+    if note:
+        text += f"NOTE: {note}\n"
+
+    try:
+
+        bot.send_message(
+            CHANNEL_ID,
+            text
+        )
 
     except Exception:
 
-        conn.rollback()
-
         logger.exception(
-            "Debit transaction failed."
+            "Could not send audit log"
         )
 
-        return False, 0, None
-
-    finally:
-        conn.close()
+    return txn_id
 
 
 # =========================================================
@@ -465,16 +336,13 @@ def products_menu():
 # =========================================================
 
 @bot.message_handler(commands=["start"])
-def start(message):
-
-    register_user(message)
+def start_command(message):
 
     bot.send_message(
         message.chat.id,
         (
             "👋 *Welcome to SpeedFistt Store!*\n\n"
-            "🛍️ Digital products खरीदने के लिए "
-            "नीचे menu का इस्तेमाल करें।"
+            "🛍️ नीचे दिए गए menu से आगे बढ़ें।"
         ),
         parse_mode="Markdown",
         reply_markup=main_menu()
@@ -488,28 +356,43 @@ def start(message):
 @bot.message_handler(commands=["balance"])
 def balance_command(message):
 
-    register_user(message)
+    try:
 
-    balance = get_balance(
-        message.from_user.id
-    )
+        balance = get_user_balance(
+            message.from_user.id
+        )
 
-    bot.send_message(
-        message.chat.id,
-        (
-            "💰 *Your Balance*\n\n"
-            f"₹ *{balance}*"
-        ),
-        parse_mode="Markdown"
-    )
+        bot.send_message(
+            message.chat.id,
+            (
+                "💰 *Your Balance*\n\n"
+                f"₹ *{balance}*"
+            ),
+            parse_mode="Markdown"
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Balance check failed"
+        )
+
+        bot.send_message(
+            message.chat.id,
+            "❌ Balance check में error आया।"
+        )
 
 
 # =========================================================
-# ADMIN ADD BALANCE
+# ADMIN ADD
 # =========================================================
 
 @bot.message_handler(commands=["add"])
-def admin_add(message):
+def add_command(message):
+
+    # -----------------------------------------------------
+    # ADMIN CHECK
+    # -----------------------------------------------------
 
     if message.from_user.id != ADMIN_ID:
 
@@ -519,6 +402,10 @@ def admin_add(message):
         )
 
         return
+
+    # -----------------------------------------------------
+    # PARSE
+    # -----------------------------------------------------
 
     args = message.text.split()
 
@@ -537,16 +424,23 @@ def admin_add(message):
 
         return
 
-    try:
+    target_user = clean_number(args[1])
+    amount = clean_number(args[2])
 
-        target_user = int(args[1])
-        amount = int(args[2])
-
-    except ValueError:
+    if target_user is None:
 
         bot.send_message(
             message.chat.id,
-            "❌ User ID और Amount valid numbers होने चाहिए।"
+            "❌ Invalid User ID."
+        )
+
+        return
+
+    if amount is None:
+
+        bot.send_message(
+            message.chat.id,
+            "❌ Invalid amount."
         )
 
         return
@@ -578,25 +472,52 @@ def admin_add(message):
 
         return
 
+    # -----------------------------------------------------
+    # CREDIT
+    # -----------------------------------------------------
+
     try:
 
-        txn_id, new_balance = credit_balance(
+        success, new_balance = (
+            update_user_balance(
+                target_user,
+                amount,
+                "CREDIT"
+            )
+        )
+
+        if not success:
+
+            bot.send_message(
+                message.chat.id,
+                "❌ Balance update failed."
+            )
+
+            return
+
+        txn_id = send_audit_log(
+            "CREDIT",
             target_user,
             amount,
-            f"Admin credit by {ADMIN_ID}"
+            new_balance,
+            note=f"Admin {ADMIN_ID}"
         )
 
         bot.send_message(
             message.chat.id,
             (
                 "✅ *Balance Added*\n\n"
-                f"👤 User ID: `{target_user}`\n"
+                f"👤 User: `{target_user}`\n"
                 f"💵 Added: *₹{amount}*\n"
                 f"💰 New Balance: *₹{new_balance}*\n"
-                f"🧾 Transaction: `{txn_id}`"
+                f"🧾 TXN: `{txn_id}`"
             ),
             parse_mode="Markdown"
         )
+
+        # -------------------------------------------------
+        # USER NOTIFICATION
+        # -------------------------------------------------
 
         try:
 
@@ -606,7 +527,7 @@ def admin_add(message):
                     "🎉 *Balance Added!*\n\n"
                     f"💵 Added: *₹{amount}*\n"
                     f"💰 New Balance: *₹{new_balance}*\n"
-                    f"🧾 Transaction: `{txn_id}`"
+                    f"🧾 TXN: `{txn_id}`"
                 ),
                 parse_mode="Markdown"
             )
@@ -620,246 +541,14 @@ def admin_add(message):
 
     except Exception:
 
-        bot.send_message(
-            message.chat.id,
-            "❌ Database error. Balance add नहीं हुआ।"
+        logger.exception(
+            "Admin balance add failed"
         )
-
-
-# =========================================================
-# ADMIN USERS
-# =========================================================
-
-@bot.message_handler(commands=["users"])
-def users_command(message):
-
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    conn = get_db()
-
-    try:
-        with conn.cursor(
-            cursor_factory=RealDictCursor
-        ) as cursor:
-
-            cursor.execute("""
-                SELECT
-                    user_id,
-                    username,
-                    first_name,
-                    balance,
-                    created_at
-                FROM users
-                ORDER BY created_at DESC
-                LIMIT 50
-            """)
-
-            rows = cursor.fetchall()
-
-    finally:
-        conn.close()
-
-    if not rows:
 
         bot.send_message(
             message.chat.id,
-            "📭 अभी कोई users नहीं हैं।"
+            "❌ Balance update में error आया।"
         )
-
-        return
-
-    text = "👥 *Recent Users*\n\n"
-
-    for row in rows:
-
-        username = (
-            f"@{row['username']}"
-            if row["username"]
-            else "No username"
-        )
-
-        text += (
-            f"👤 `{row['user_id']}`\n"
-            f"Name: {row['first_name'] or '-'}\n"
-            f"Username: {username}\n"
-            f"Balance: ₹{row['balance']}\n\n"
-        )
-
-    bot.send_message(
-        message.chat.id,
-        text,
-        parse_mode="Markdown"
-    )
-
-
-# =========================================================
-# ADMIN HISTORY
-# =========================================================
-
-@bot.message_handler(commands=["history"])
-def history_command(message):
-
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    args = message.text.split()
-
-    if len(args) != 2:
-
-        bot.send_message(
-            message.chat.id,
-            "`/history USER_ID`",
-            parse_mode="Markdown"
-        )
-
-        return
-
-    try:
-        target_user = int(args[1])
-
-    except ValueError:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Invalid User ID."
-        )
-
-        return
-
-    conn = get_db()
-
-    try:
-        with conn.cursor(
-            cursor_factory=RealDictCursor
-        ) as cursor:
-
-            cursor.execute("""
-                SELECT
-                    txn_id,
-                    txn_type,
-                    amount,
-                    balance_after,
-                    product,
-                    created_at
-                FROM transactions
-                WHERE user_id = %s
-                ORDER BY id DESC
-                LIMIT 20
-            """, (
-                target_user,
-            ))
-
-            rows = cursor.fetchall()
-
-    finally:
-        conn.close()
-
-    if not rows:
-
-        bot.send_message(
-            message.chat.id,
-            "📭 कोई transaction नहीं मिली।"
-        )
-
-        return
-
-    text = (
-        "📋 *Transaction History*\n"
-        f"User: `{target_user}`\n\n"
-    )
-
-    for row in rows:
-
-        if row["txn_type"] == "CREDIT":
-            icon = "🟢"
-            sign = "+"
-        else:
-            icon = "🔴"
-            sign = "-"
-
-        product = row["product"] or "-"
-
-        text += (
-            f"{icon} `{row['txn_id']}`\n"
-            f"Type: {row['txn_type']}\n"
-            f"Amount: {sign}₹{row['amount']}\n"
-            f"Balance: ₹{row['balance_after']}\n"
-            f"Product: {product}\n"
-            f"Time: {row['created_at']}\n\n"
-        )
-
-    bot.send_message(
-        message.chat.id,
-        text,
-        parse_mode="Markdown"
-    )
-
-
-# =========================================================
-# ADMIN STATS
-# =========================================================
-
-@bot.message_handler(commands=["stats"])
-def stats_command(message):
-
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    conn = get_db()
-
-    try:
-        with conn.cursor(
-            cursor_factory=RealDictCursor
-        ) as cursor:
-
-            cursor.execute(
-                "SELECT COUNT(*) AS total FROM users"
-            )
-            total_users = cursor.fetchone()["total"]
-
-            cursor.execute("""
-                SELECT COALESCE(SUM(balance), 0) AS total
-                FROM users
-            """)
-            total_balance = cursor.fetchone()["total"]
-
-            cursor.execute("""
-                SELECT COALESCE(SUM(amount), 0) AS total
-                FROM transactions
-                WHERE txn_type = 'CREDIT'
-            """)
-            total_credited = cursor.fetchone()["total"]
-
-            cursor.execute("""
-                SELECT COALESCE(SUM(amount), 0) AS total
-                FROM transactions
-                WHERE txn_type = 'DEBIT'
-            """)
-            total_spent = cursor.fetchone()["total"]
-
-            cursor.execute("""
-                SELECT COUNT(*) AS total
-                FROM transactions
-                WHERE txn_type = 'DEBIT'
-            """)
-            total_purchases = cursor.fetchone()["total"]
-
-    finally:
-        conn.close()
-
-    bot.send_message(
-        message.chat.id,
-        (
-            "📊 *SpeedFistt Statistics*\n\n"
-            f"👥 Users: *{total_users}*\n"
-            f"💰 Current Balance: *₹{total_balance}*\n"
-            f"🟢 Total Credits: *₹{total_credited}*\n"
-            f"🔴 Total Spent: *₹{total_spent}*\n"
-            f"🛒 Purchases: *{total_purchases}*"
-        ),
-        parse_mode="Markdown"
-    )
 
 
 # =========================================================
@@ -891,7 +580,7 @@ def send_fund_info(message):
     except Exception:
 
         logger.exception(
-            "QR code sending failed."
+            "QR image sending failed"
         )
 
         bot.send_message(
@@ -902,52 +591,75 @@ def send_fund_info(message):
 
 
 # =========================================================
-# PRODUCT PURCHASE
+# PURCHASE
 # =========================================================
 
 def process_purchase(
     message,
     product_name,
-    price,
-    delivery_text
+    price
 ):
 
     user_id = message.from_user.id
 
-    success, new_balance, txn_id = debit_balance(
-        user_id,
-        price,
-        product_name
-    )
+    try:
 
-    if not success:
+        success, new_balance = (
+            update_user_balance(
+                user_id,
+                price,
+                "DEBIT"
+            )
+        )
+
+        if not success:
+
+            bot.send_message(
+                message.chat.id,
+                (
+                    "❌ *Insufficient Balance*\n\n"
+                    f"💵 Required: ₹{price}\n"
+                    f"💰 Your Balance: ₹{new_balance}\n\n"
+                    "ADD FUND से balance add करें।"
+                ),
+                parse_mode="Markdown"
+            )
+
+            return
+
+        txn_id = send_audit_log(
+            "DEBIT",
+            user_id,
+            price,
+            new_balance,
+            product=product_name
+        )
 
         bot.send_message(
             message.chat.id,
             (
-                "❌ *Insufficient Balance*\n\n"
-                f"💵 Required: ₹{price}\n"
-                f"💰 Your Balance: ₹{new_balance}\n\n"
-                "ADD FUND से balance add करें।"
+                "✅ *Purchase Successful!*\n\n"
+                f"📦 Product: *{product_name}*\n"
+                f"💸 Paid: *₹{price}*\n"
+                f"💰 Remaining: *₹{new_balance}*\n"
+                f"🧾 TXN: `{txn_id}`\n\n"
+                "📦 Digital product delivery "
+                "यहाँ configure की जा सकती है।"
             ),
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=main_menu()
         )
 
-        return
+    except Exception:
 
-    bot.send_message(
-        message.chat.id,
-        (
-            "✅ *Purchase Successful!*\n\n"
-            f"📦 Product: *{product_name}*\n"
-            f"💸 Paid: *₹{price}*\n"
-            f"💰 Remaining: *₹{new_balance}*\n"
-            f"🧾 Transaction: `{txn_id}`\n\n"
-            f"{delivery_text}"
-        ),
-        parse_mode="Markdown",
-        reply_markup=main_menu()
-    )
+        logger.exception(
+            "Purchase failed"
+        )
+
+        bot.send_message(
+            message.chat.id,
+            "❌ Purchase process में error आया।"
+        )
 
 
 # =========================================================
@@ -959,24 +671,30 @@ def process_purchase(
 )
 def message_handler(message):
 
-    register_user(message)
-
     text = message.text or ""
 
     if text == "BALANCE ✅":
 
-        balance = get_balance(
-            message.from_user.id
-        )
+        try:
 
-        bot.send_message(
-            message.chat.id,
-            (
-                "💰 *Current Balance*\n\n"
-                f"₹ *{balance}*"
-            ),
-            parse_mode="Markdown"
-        )
+            balance = get_user_balance(
+                message.from_user.id
+            )
+
+            bot.send_message(
+                message.chat.id,
+                (
+                    "💰 *Current Balance*\n\n"
+                    f"₹ *{balance}*"
+                ),
+                parse_mode="Markdown"
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Balance button failed"
+            )
 
     elif text == "ADD FUND ✅":
 
@@ -999,8 +717,7 @@ def message_handler(message):
         process_purchase(
             message,
             "SpeedFistt Product 1",
-            399,
-            "📦 आपका digital product यहाँ उपलब्ध होगा।"
+            399
         )
 
     elif text == "🛒 PRODUCT 2 (₹599)":
@@ -1008,8 +725,7 @@ def message_handler(message):
         process_purchase(
             message,
             "SpeedFistt Product 2",
-            599,
-            "📦 आपका digital product यहाँ उपलब्ध होगा।"
+            599
         )
 
     elif text == "वापस जाएँ 🔙":
@@ -1023,23 +739,23 @@ def message_handler(message):
 
 
 # =========================================================
-# RUN
+# START
 # =========================================================
 
 def main():
 
-    init_database()
-
     logger.info(
-        "SpeedFistt Store Bot started."
+        "SpeedFistt Bot starting..."
     )
 
     print(
-        "🤖 SpeedFistt Store Bot is running..."
+        "🤖 SpeedFistt Bot is running..."
     )
 
     bot.infinity_polling(
-        skip_pending=True
+        skip_pending=True,
+        timeout=30,
+        long_polling_timeout=30
     )
 
 
