@@ -129,29 +129,35 @@ def get_balances():
 
 @bot.message_handler(commands=["start"])
 def start_command(message):
-    user_id = message.from_user.id
+    logging.info(
+        "START RECEIVED | user_id=%s | chat_id=%s | text=%s",
+        message.from_user.id,
+        message.chat.id,
+        message.text
+    )
 
-    try:
-        with balance_lock:
-            balances = get_balances()
+    bot.send_message(
+        message.chat.id,
+        "👋 Welcome to SpeedFistt Store!\n\n"
+        "✅ Bot is working!\n\n"
+        "💰 /balance - Check balance\n"
+        "🛍 /products - View products"
+    )
 
-            if user_id not in balances:
-                balances[user_id] = 0.0
-                update_balance_message(balances)
 
-        bot.reply_to(
-            message,
-            "👋 Welcome to SpeedFistt Store!\n\n"
-            "💰 /balance - Check your balance\n"
-            "🛍 /products - View products"
-        )
+@bot.message_handler(commands=["ping"])
+def ping_command(message):
+    logging.info(
+        "PING RECEIVED | user_id=%s | chat_id=%s",
+        message.from_user.id,
+        message.chat.id
+    )
 
-    except Exception as e:
-        logging.exception("Start error")
-        bot.reply_to(
-            message,
-            "❌ Setup error. Please contact admin."
-        )
+    bot.send_message(
+        message.chat.id,
+        "🏓 PONG!\n\n"
+        "Telegram → Render → Bot ✅"
+    )
 
 
 @bot.message_handler(commands=["balance"])
