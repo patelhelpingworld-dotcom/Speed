@@ -1,5 +1,3 @@
-```text
 pyTelegramBotAPI
 Flask
 gunicorn
-```
