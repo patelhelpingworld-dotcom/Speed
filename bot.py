@@ -1,764 +1,382 @@
 ```python
 import os
-import re
-import time
-import secrets
-import logging
 import threading
+import logging
 
 import telebot
-from telebot import types
+from flask import Flask, request
 
-
-# =========================================================
+# =========================
 # CONFIG
-# =========================================================
+# =========================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_NEW_BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
 
-# Telegram user ID of the only admin allowed to /add
-ADMIN_ID = int(os.getenv("ADMIN_ID", "1006157952"))
+ADMIN_ID = 1003892586354
+CHANNEL_ID = -1003892586354
+BALANCE_MESSAGE_ID = 4
 
-# Private channel ID
-# Example: -1001234567890
-CHANNEL_ID = int(
-    os.getenv("CHANNEL_ID", "-1000000000000")
-)
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN environment variable is missing")
 
-# Message ID of the BALANCE DATABASE message
-# Create one message manually in your private channel.
-BALANCE_MESSAGE_ID = int(
-    os.getenv("BALANCE_MESSAGE_ID", "1")
-)
+if not WEBHOOK_URL:
+    raise RuntimeError("WEBHOOK_URL environment variable is missing")
 
-QR_CODE_URL = (
-    "https://i.ibb.co/7JzK1hRv/"
-    "IMG-20260913-223730-495.jpg"
-)
+bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
 
-
-# =========================================================
-# LOGGING
-# =========================================================
+# One process = one lock
+balance_lock = threading.Lock()
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-logger = logging.getLogger("SpeedFistt")
+# =========================
+# BALANCE STORAGE
+# =========================
 
-
-# =========================================================
-# BOT
-# =========================================================
-
-bot = telebot.TeleBot(BOT_TOKEN)
-
-# Prevent two balance operations from modifying the
-# balance message at exactly the same time.
-balance_lock = threading.Lock()
-
-
-# =========================================================
-# BASIC HELPERS
-# =========================================================
-
-def generate_txn_id():
-    return "SF-" + secrets.token_hex(5).upper()
-
-
-def clean_number(value):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-# =========================================================
-# CHANNEL DATABASE
-# =========================================================
-
-def get_balance_database_text():
-    """
-    Reads the fixed balance message from the private channel.
-    """
-
-    message = bot.forward_message(
-        chat_id=CHANNEL_ID,
-        from_chat_id=CHANNEL_ID,
-        message_id=BALANCE_MESSAGE_ID
-    )
-
-    # The forwarded message contains the original text.
-    # Delete the temporary forwarded copy afterwards.
-    try:
-        bot.delete_message(
-            CHANNEL_ID,
-            message.message_id
-        )
-    except Exception:
-        pass
-
-    return message.text or ""
-
-
-def read_balances():
-    """
-    Expected balance database format:
-
-    SPEEDFISTT BALANCE DATABASE
-
-    USER: 123456789 | BALANCE: 500
-    USER: 987654321 | BALANCE: 1200
-    """
-
-    text = get_balance_database_text()
-
+def parse_balances(text):
     balances = {}
 
-    pattern = r"USER:\s*(\d+)\s*\|\s*BALANCE:\s*(-?\d+)"
+    for line in text.splitlines():
+        line = line.strip()
 
-    for match in re.finditer(pattern, text):
-        user_id = int(match.group(1))
-        balance = int(match.group(2))
+        if not line:
+            continue
 
-        balances[user_id] = balance
+        if line.startswith("USER:"):
+            try:
+                parts = line.split("|")
+
+                user_id = int(parts[0].split(":")[1].strip())
+                balance = float(parts[1].split(":")[1].strip())
+
+                balances[user_id] = balance
+            except (ValueError, IndexError):
+                continue
 
     return balances
 
 
-def create_balance_database_text(balances):
-    """
-    Creates the complete balance message text.
-    """
-
-    lines = [
-        "💰 SPEEDFISTT BALANCE DATABASE",
-        "",
-        "⚠️ DO NOT EDIT THIS MESSAGE MANUALLY",
-        ""
-    ]
+def format_balances(balances):
+    lines = ["💰 SPEEDFISTT BALANCE DATABASE", ""]
 
     if not balances:
-        lines.append("NO USERS YET")
+        lines.append("No users registered yet.")
     else:
-
         for user_id in sorted(balances):
+            amount = balances[user_id]
+
+            if amount.is_integer():
+                amount_text = str(int(amount))
+            else:
+                amount_text = f"{amount:.2f}"
 
             lines.append(
-                f"USER: {user_id} | BALANCE: {balances[user_id]}"
+                f"USER: {user_id} | BALANCE: {amount_text}"
             )
 
     return "\n".join(lines)
 
 
-def save_balances(balances):
+def read_balance_message():
     """
-    Updates the fixed balance database message.
+    Telegram Bot API does not provide a normal 'get old channel message'
+    endpoint.
+
+    We temporarily forward the fixed balance message to the admin chat,
+    read its text, then delete the temporary forwarded message.
     """
 
-    new_text = create_balance_database_text(
-        balances
+    forwarded = bot.forward_message(
+        chat_id=ADMIN_ID,
+        from_chat_id=CHANNEL_ID,
+        message_id=BALANCE_MESSAGE_ID
     )
-
-    bot.edit_message_text(
-        chat_id=CHANNEL_ID,
-        message_id=BALANCE_MESSAGE_ID,
-        text=new_text
-    )
-
-
-def get_user_balance(user_id):
-
-    with balance_lock:
-
-        balances = read_balances()
-
-        return balances.get(user_id, 0)
-
-
-def update_user_balance(
-    user_id,
-    amount,
-    operation
-):
-    """
-    operation:
-        CREDIT
-        DEBIT
-
-    Returns:
-        success, new_balance
-    """
-
-    with balance_lock:
-
-        balances = read_balances()
-
-        current_balance = balances.get(
-            user_id,
-            0
-        )
-
-        if operation == "CREDIT":
-
-            new_balance = (
-                current_balance + amount
-            )
-
-        elif operation == "DEBIT":
-
-            if current_balance < amount:
-                return False, current_balance
-
-            new_balance = (
-                current_balance - amount
-            )
-
-        else:
-
-            raise ValueError(
-                "Invalid balance operation"
-            )
-
-        balances[user_id] = new_balance
-
-        save_balances(balances)
-
-        return True, new_balance
-
-
-# =========================================================
-# CHANNEL AUDIT LOG
-# =========================================================
-
-def send_audit_log(
-    txn_type,
-    user_id,
-    amount,
-    new_balance,
-    product="",
-    note=""
-):
-
-    txn_id = generate_txn_id()
-
-    if txn_type == "CREDIT":
-        icon = "🟢"
-    else:
-        icon = "🔴"
-
-    text = (
-        f"{icon} SPEEDFISTT TRANSACTION\n\n"
-        f"TXN: {txn_id}\n"
-        f"TYPE: {txn_type}\n"
-        f"USER: {user_id}\n"
-        f"AMOUNT: ₹{amount}\n"
-        f"BALANCE: ₹{new_balance}\n"
-    )
-
-    if product:
-        text += f"PRODUCT: {product}\n"
-
-    if note:
-        text += f"NOTE: {note}\n"
 
     try:
-
-        bot.send_message(
-            CHANNEL_ID,
-            text
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Could not send audit log"
-        )
-
-    return txn_id
+        return forwarded.text or ""
+    finally:
+        try:
+            bot.delete_message(
+                ADMIN_ID,
+                forwarded.message_id
+            )
+        except Exception:
+            pass
 
 
-# =========================================================
-# KEYBOARDS
-# =========================================================
+def update_balance_message(balances):
+    new_text = format_balances(balances)
 
-def main_menu():
-
-    markup = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
+    bot.edit_message_text(
+        new_text,
+        chat_id=CHANNEL_ID,
+        message_id=BALANCE_MESSAGE_ID
     )
 
-    markup.row(
-        types.KeyboardButton("BALANCE ✅"),
-        types.KeyboardButton("ADD FUND ✅")
-    )
 
-    markup.row(
-        types.KeyboardButton(
-            "SPEEDFISTT PRODUCTS"
-        )
-    )
-
-    return markup
+def get_balances():
+    text = read_balance_message()
+    return parse_balances(text)
 
 
-def products_menu():
-
-    markup = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
-    )
-
-    markup.row(
-        types.KeyboardButton(
-            "🛒 PRODUCT 1 (₹399)"
-        )
-    )
-
-    markup.row(
-        types.KeyboardButton(
-            "🛒 PRODUCT 2 (₹599)"
-        )
-    )
-
-    markup.row(
-        types.KeyboardButton(
-            "वापस जाएँ 🔙"
-        )
-    )
-
-    return markup
-
-
-# =========================================================
-# START
-# =========================================================
+# =========================
+# USER COMMANDS
+# =========================
 
 @bot.message_handler(commands=["start"])
 def start_command(message):
+    user_id = message.from_user.id
 
-    bot.send_message(
-        message.chat.id,
-        (
-            "👋 *Welcome to SpeedFistt Store!*\n\n"
-            "🛍️ नीचे दिए गए menu से आगे बढ़ें।"
-        ),
-        parse_mode="Markdown",
-        reply_markup=main_menu()
-    )
+    try:
+        with balance_lock:
+            balances = get_balances()
 
+            if user_id not in balances:
+                balances[user_id] = 0.0
+                update_balance_message(balances)
 
-# =========================================================
-# BALANCE
-# =========================================================
+        bot.reply_to(
+            message,
+            "👋 Welcome to SpeedFistt Store!\n\n"
+            "💰 /balance - Check your balance\n"
+            "🛍 /products - View products"
+        )
+
+    except Exception as e:
+        logging.exception("Start error")
+        bot.reply_to(
+            message,
+            "❌ Setup error. Please contact admin."
+        )
+
 
 @bot.message_handler(commands=["balance"])
 def balance_command(message):
+    user_id = message.from_user.id
 
     try:
+        balances = get_balances()
+        balance = balances.get(user_id, 0.0)
 
-        balance = get_user_balance(
-            message.from_user.id
-        )
-
-        bot.send_message(
-            message.chat.id,
-            (
-                "💰 *Your Balance*\n\n"
-                f"₹ *{balance}*"
-            ),
-            parse_mode="Markdown"
+        bot.reply_to(
+            message,
+            f"💰 Your balance: ₹{balance:.2f}"
         )
 
     except Exception:
-
-        logger.exception(
-            "Balance check failed"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Balance check में error आया।"
+        logging.exception("Balance error")
+        bot.reply_to(
+            message,
+            "❌ Could not check balance."
         )
 
 
-# =========================================================
-# ADMIN ADD
-# =========================================================
+@bot.message_handler(commands=["products"])
+def products_command(message):
+    bot.reply_to(
+        message,
+        "🛍 SPEEDFISTT STORE\n\n"
+        "1️⃣ Digital Product A — ₹100\n"
+        "2️⃣ Digital Product B — ₹200\n\n"
+        "Use:\n"
+        "/buy 1\n"
+        "/buy 2"
+    )
+
+
+# =========================
+# ADMIN ADD BALANCE
+# =========================
 
 @bot.message_handler(commands=["add"])
-def add_command(message):
-
-    # -----------------------------------------------------
-    # ADMIN CHECK
-    # -----------------------------------------------------
-
+def add_balance(message):
     if message.from_user.id != ADMIN_ID:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ आपको इस command की permission नहीं है।"
-        )
-
+        bot.reply_to(message, "❌ Admin only.")
         return
 
-    # -----------------------------------------------------
-    # PARSE
-    # -----------------------------------------------------
+    parts = message.text.split()
 
-    args = message.text.split()
-
-    if len(args) != 3:
-
-        bot.send_message(
-            message.chat.id,
-            (
-                "⚠️ *Correct Format:*\n\n"
-                "`/add USER_ID AMOUNT`\n\n"
-                "Example:\n"
-                "`/add 123456789 500`"
-            ),
-            parse_mode="Markdown"
+    if len(parts) != 3:
+        bot.reply_to(
+            message,
+            "Usage:\n/add USER_ID AMOUNT\n\n"
+            "Example:\n/add 123456789 500"
         )
-
         return
-
-    target_user = clean_number(args[1])
-    amount = clean_number(args[2])
-
-    if target_user is None:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Invalid User ID."
-        )
-
-        return
-
-    if amount is None:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Invalid amount."
-        )
-
-        return
-
-    if target_user <= 0:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Invalid User ID."
-        )
-
-        return
-
-    if amount <= 0:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Amount 0 से ज्यादा होना चाहिए।"
-        )
-
-        return
-
-    if amount > 1_000_000:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Maximum single credit ₹10,00,000 है।"
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # CREDIT
-    # -----------------------------------------------------
 
     try:
+        user_id = int(parts[1])
+        amount = float(parts[2])
 
-        success, new_balance = (
-            update_user_balance(
-                target_user,
-                amount,
-                "CREDIT"
-            )
-        )
-
-        if not success:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Balance update failed."
-            )
-
+        if amount <= 0:
+            bot.reply_to(message, "❌ Amount must be greater than 0.")
             return
 
-        txn_id = send_audit_log(
-            "CREDIT",
-            target_user,
-            amount,
-            new_balance,
-            note=f"Admin {ADMIN_ID}"
-        )
+        if amount > 1000000:
+            bot.reply_to(message, "❌ Amount is too large.")
+            return
 
-        bot.send_message(
-            message.chat.id,
-            (
-                "✅ *Balance Added*\n\n"
-                f"👤 User: `{target_user}`\n"
-                f"💵 Added: *₹{amount}*\n"
-                f"💰 New Balance: *₹{new_balance}*\n"
-                f"🧾 TXN: `{txn_id}`"
-            ),
-            parse_mode="Markdown"
-        )
+    except ValueError:
+        bot.reply_to(message, "❌ Invalid User ID or amount.")
+        return
 
-        # -------------------------------------------------
-        # USER NOTIFICATION
-        # -------------------------------------------------
+    try:
+        with balance_lock:
+            balances = get_balances()
+
+            old_balance = balances.get(user_id, 0.0)
+            new_balance = old_balance + amount
+
+            balances[user_id] = new_balance
+
+            update_balance_message(balances)
+
+        bot.reply_to(
+            message,
+            f"✅ Balance added\n\n"
+            f"👤 User: {user_id}\n"
+            f"💵 Added: ₹{amount:.2f}\n"
+            f"💰 New balance: ₹{new_balance:.2f}"
+        )
 
         try:
-
             bot.send_message(
-                target_user,
-                (
-                    "🎉 *Balance Added!*\n\n"
-                    f"💵 Added: *₹{amount}*\n"
-                    f"💰 New Balance: *₹{new_balance}*\n"
-                    f"🧾 TXN: `{txn_id}`"
-                ),
-                parse_mode="Markdown"
-            )
-
-        except Exception as e:
-
-            logger.warning(
-                "User notification failed: %s",
-                e
-            )
-
-    except Exception:
-
-        logger.exception(
-            "Admin balance add failed"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Balance update में error आया।"
-        )
-
-
-# =========================================================
-# FUND INFORMATION
-# =========================================================
-
-def send_fund_info(message):
-
-    user_id = message.from_user.id
-
-    caption = (
-        "📌 *Manual Fund Add Process*\n\n"
-        "1. QR code scan करें।\n"
-        "2. Payment complete करें।\n"
-        "3. Screenshot admin को भेजें।\n\n"
-        f"🔑 आपकी User ID: `{user_id}`\n"
-        "📩 Screenshot @SpeedFistt पर भेजें।"
-    )
-
-    try:
-
-        bot.send_photo(
-            message.chat.id,
-            QR_CODE_URL,
-            caption=caption,
-            parse_mode="Markdown"
-        )
-
-    except Exception:
-
-        logger.exception(
-            "QR image sending failed"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            caption,
-            parse_mode="Markdown"
-        )
-
-
-# =========================================================
-# PURCHASE
-# =========================================================
-
-def process_purchase(
-    message,
-    product_name,
-    price
-):
-
-    user_id = message.from_user.id
-
-    try:
-
-        success, new_balance = (
-            update_user_balance(
                 user_id,
-                price,
-                "DEBIT"
+                f"💰 Balance Added!\n\n"
+                f"Added: ₹{amount:.2f}\n"
+                f"Current Balance: ₹{new_balance:.2f}"
             )
+        except Exception:
+            logging.info("Could not notify user %s", user_id)
+
+    except Exception:
+        logging.exception("Add balance error")
+        bot.reply_to(
+            message,
+            "❌ Balance update failed."
         )
 
-        if not success:
 
-            bot.send_message(
-                message.chat.id,
-                (
-                    "❌ *Insufficient Balance*\n\n"
-                    f"💵 Required: ₹{price}\n"
-                    f"💰 Your Balance: ₹{new_balance}\n\n"
-                    "ADD FUND से balance add करें।"
-                ),
-                parse_mode="Markdown"
-            )
+# =========================
+# PURCHASE
+# =========================
 
-            return
+PRODUCTS = {
+    1: ("Digital Product A", 100.0),
+    2: ("Digital Product B", 200.0),
+}
 
-        txn_id = send_audit_log(
-            "DEBIT",
-            user_id,
-            price,
-            new_balance,
-            product=product_name
+
+@bot.message_handler(commands=["buy"])
+def buy_product(message):
+    parts = message.text.split()
+
+    if len(parts) != 2:
+        bot.reply_to(
+            message,
+            "Usage:\n/buy 1\nor\n/buy 2"
         )
+        return
 
-        bot.send_message(
-            message.chat.id,
-            (
-                "✅ *Purchase Successful!*\n\n"
-                f"📦 Product: *{product_name}*\n"
-                f"💸 Paid: *₹{price}*\n"
-                f"💰 Remaining: *₹{new_balance}*\n"
-                f"🧾 TXN: `{txn_id}`\n\n"
-                "📦 Digital product delivery "
-                "यहाँ configure की जा सकती है।"
-            ),
-            parse_mode="Markdown",
-            reply_markup=main_menu()
+    try:
+        product_id = int(parts[1])
+    except ValueError:
+        bot.reply_to(message, "❌ Invalid product.")
+        return
+
+    if product_id not in PRODUCTS:
+        bot.reply_to(message, "❌ Product not found.")
+        return
+
+    product_name, price = PRODUCTS[product_id]
+    user_id = message.from_user.id
+
+    try:
+        with balance_lock:
+            balances = get_balances()
+
+            current_balance = balances.get(user_id, 0.0)
+
+            if current_balance < price:
+                bot.reply_to(
+                    message,
+                    f"❌ Insufficient balance.\n\n"
+                    f"Price: ₹{price:.2f}\n"
+                    f"Your balance: ₹{current_balance:.2f}"
+                )
+                return
+
+            new_balance = current_balance - price
+            balances[user_id] = new_balance
+
+            update_balance_message(balances)
+
+        bot.reply_to(
+            message,
+            f"✅ Purchase successful!\n\n"
+            f"🛍 Product: {product_name}\n"
+            f"💵 Price: ₹{price:.2f}\n"
+            f"💰 Remaining balance: ₹{new_balance:.2f}"
         )
 
     except Exception:
-
-        logger.exception(
-            "Purchase failed"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Purchase process में error आया।"
-        )
-
-
-# =========================================================
-# MAIN MESSAGE HANDLER
-# =========================================================
-
-@bot.message_handler(
-    func=lambda message: True
-)
-def message_handler(message):
-
-    text = message.text or ""
-
-    if text == "BALANCE ✅":
-
-        try:
-
-            balance = get_user_balance(
-                message.from_user.id
-            )
-
-            bot.send_message(
-                message.chat.id,
-                (
-                    "💰 *Current Balance*\n\n"
-                    f"₹ *{balance}*"
-                ),
-                parse_mode="Markdown"
-            )
-
-        except Exception:
-
-            logger.exception(
-                "Balance button failed"
-            )
-
-    elif text == "ADD FUND ✅":
-
-        send_fund_info(message)
-
-    elif text == "SPEEDFISTT PRODUCTS":
-
-        bot.send_message(
-            message.chat.id,
-            (
-                "🛍️ *SpeedFistt Products*\n\n"
-                "Product select करें:"
-            ),
-            parse_mode="Markdown",
-            reply_markup=products_menu()
-        )
-
-    elif text == "🛒 PRODUCT 1 (₹399)":
-
-        process_purchase(
+        logging.exception("Purchase error")
+        bot.reply_to(
             message,
-            "SpeedFistt Product 1",
-            399
-        )
-
-    elif text == "🛒 PRODUCT 2 (₹599)":
-
-        process_purchase(
-            message,
-            "SpeedFistt Product 2",
-            599
-        )
-
-    elif text == "वापस जाएँ 🔙":
-
-        bot.send_message(
-            message.chat.id,
-            "🔙 *Main Menu*",
-            parse_mode="Markdown",
-            reply_markup=main_menu()
+            "❌ Purchase failed."
         )
 
 
-# =========================================================
-# START
-# =========================================================
+# =========================
+# WEBHOOK
+# =========================
 
-def main():
+@app.route("/", methods=["GET"])
+def home():
+    return "SpeedFistt Store Bot is running.", 200
 
-    logger.info(
-        "SpeedFistt Bot starting..."
-    )
 
-    print(
-        "🤖 SpeedFistt Bot is running..."
-    )
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        json_string = request.get_data().decode("utf-8")
+        update = telebot.types.Update.de_json(json_string)
 
-    bot.infinity_polling(
-        skip_pending=True,
-        timeout=30,
-        long_polling_timeout=30
-    )
+        bot.process_new_updates([update])
+
+        return "OK", 200
+
+    except Exception:
+        logging.exception("Webhook error")
+        return "ERROR", 500
+
+
+# =========================
+# START WEBHOOK
+# =========================
+
+def setup_webhook():
+    webhook_address = f"{WEBHOOK_URL}/webhook"
+
+    bot.remove_webhook()
+    bot.set_webhook(url=webhook_address)
+
+    logging.info("Webhook set: %s", webhook_address)
+
+
+setup_webhook()
 
 
 if __name__ == "__main__":
-    main()
+    port = int(os.getenv("PORT", "10000"))
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
 ```
