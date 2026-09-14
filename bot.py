@@ -22,7 +22,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__)
 
 
@@ -100,7 +100,7 @@ def webhook():
 
         bot.process_new_updates([update])
 
-        logging.info("UPDATE PROCESSED")
+        logging.info("UPDATE PROCESSED SUCCESSFULLY")
 
         return "OK", 200
 
