@@ -311,8 +311,15 @@ def append_order(order_line):
 def is_member_of_channel(user_id, channel_id):
     try:
         member = bot.get_chat_member(
+            chat_id=channel_id,
+            user_id=user_id
+        )
+
+        logging.info(
+            "JOIN CHECK | channel=%s user=%s status=%s",
             channel_id,
-            user_id
+            user_id,
+            member.status
         )
 
         return member.status in (
@@ -322,10 +329,10 @@ def is_member_of_channel(user_id, channel_id):
         )
 
     except Exception as e:
-        logging.warning(
-            "CHANNEL CHECK ERROR %s: %s",
+        logging.exception(
+            "JOIN CHECK FAILED | channel=%s user=%s",
             channel_id,
-            e
+            user_id
         )
         return False
 
