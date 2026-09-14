@@ -2721,38 +2721,19 @@ def ping_command(message):
 # WEBHOOK
 # =========================================================
 
-@app.route("/")
-def home():
-    return "Bot is running", 200
-
-
-@app.route("/health")
-def health():
-    return "OK", 200
-
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data = request.get_data().decode(
-            "utf-8"
-        )
+        data = request.get_data().decode("utf-8")
 
-        update = telebot.types.Update.de_json(
-            data
-        )
+        update = telebot.types.Update.de_json(data)
 
-        bot.process_new_updates(
-            [update]
-        )
+        bot.process_new_updates([update])
 
         return "OK", 200
 
     except Exception:
-        logging.exception(
-            "WEBHOOK ERROR"
-        )
-
+        logging.exception("WEBHOOK ERROR")
         return "ERROR", 500
 
 
@@ -2762,33 +2743,19 @@ def webhook():
 
 def setup_webhook():
     try:
-        webhook_url = (
-            f"{WEBHOOK_URL.rstrip('/')}/webhook"
-        )
+        webhook_url = f"{WEBHOOK_URL.rstrip('/')}/webhook"
 
         bot.remove_webhook()
-
         time.sleep(1)
 
         result = bot.set_webhook(
-            url=webhook_url,
-            allowed_updates=[
-                "message",
-                "channel_post",
-                "callback_query"
-            ]
+            url=webhook_url
         )
 
-        logging.info(
-            "WEBHOOK SET: %s",
-            result
-        )
+        logging.info("WEBHOOK SET: %s", result)
 
     except Exception:
-        logging.exception(
-            "WEBHOOK SETUP ERROR"
-        )
-
+        logging.exception("WEBHOOK SETUP ERROR")
 
 # =========================================================
 # START APP
