@@ -1,5 +1,5 @@
 import os
-import threading
+import re
 import time
 import logging
 from datetime import datetime, timedelta
@@ -8,95 +8,27 @@ import telebot
 from telebot import types
 from flask import Flask, request
 
-
 # =========================================================
-# ⚡ BGMI HACK STORE — PREMIUM HACKS
+# CONFIG
 # =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://speed-b8rg.onrender.com")
 
-# 👑 ADMIN
 ADMIN_ID = 1006157952
 
-# 📦 TELEGRAM DATABASE CHANNEL
-CHANNEL_ID = -1003892586354
+# Balance database channel
+BALANCE_DB_CHAT_ID = -1003892586354
+BALANCE_DB_MESSAGE_ID = 4
 
-# 💰 BALANCE DATABASE MESSAGE
-BALANCE_MESSAGE_ID = 4
+# Orders + coupons database channel
+ORDERS_DB_CHAT_ID = -1003892586354
+ORDERS_DB_MESSAGE_ID = 8
 
-# 📜 ORDERS DATABASE MESSAGE
-ORDERS_MESSAGE_ID = 8
-
-# 🖼️ PAYMENT QR
-QR_FILE = "qr.jpg"
-
-# Maximum orders stored in Telegram database
-MAX_ORDERS = 1440
-
-# =========================================================
-# BRANDING
-# =========================================================
-
-USER_BRAND = "⚡ Admin: @SpeedFistt"
-OWNER_BRAND = "👑 Owner: @SpeedFistt"
-
-
-# =========================================================
-# 🛍 PRODUCTS
-# =========================================================
-
-PRODUCTS = {
-
-    1: {
-        "name": "OBB & FILES",
-        "price": 299,
-        "group_id": -1004494287362
-    },
-
-    2: {
-        "name": "SAFE HACK (1-month)",
-        "price": 499,
-        "group_id": -1003778035299
-    },
-
-    3: {
-        "name": "SAFE HACK (full-season)",
-        "price": 799,
-        "group_id": -1004203063772
-    }
-
-}
-
-
-# =========================================================
-# CHECK CONFIG
-# =========================================================
+OWNER_USERNAME = "@SpeedFistt"
 
 if not BOT_TOKEN:
-    raise RuntimeError(
-        "BOT_TOKEN environment variable is missing"
-    )
-
-if not WEBHOOK_URL:
-    raise RuntimeError(
-        "WEBHOOK_URL environment variable is missing"
-    )
-
-
-# =========================================================
-# LOGGING
-# =========================================================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
-
-
-# =========================================================
-# BOT
-# =========================================================
+    raise RuntimeError("BOT_TOKEN environment variable missing")
 
 bot = telebot.TeleBot(
     BOT_TOKEN,
@@ -105,2228 +37,2696 @@ bot = telebot.TeleBot(
 
 app = Flask(__name__)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
 
 # =========================================================
-# LOCKS
+# MANDATORY CHANNELS
 # =========================================================
 
-balance_lock = threading.Lock()
-order_lock = threading.Lock()
-
+MANDATORY_CHANNELS = [
+    {
+        "id": -1001867059625,
+        "link": "https://t.me/+U3dzaMEqyJY3MzJl",
+        "name": "Channel 1"
+    },
+    {
+        "id": -1002389473373,
+        "link": "https://t.me/+9LkvQ9ATLSdkYTQ1",
+        "name": "Channel 2"
+    },
+    {
+        "id": -1002688365315,
+        "link": "https://t.me/+63MXGMQmP-M3MTg1",
+        "name": "Channel 3"
+    }
+]
 
 # =========================================================
-# TEMPORARY STATES
+# PRODUCTS
 # =========================================================
 
-# Example:
-# pending_funds[user_id] = {
-#     "stage": "amount"
-# }
+PRODUCTS = {
+    1: {
+        "name": "Digital Product A",
+        "price": 499,
+        "group_id": -1004494287362
+    },
+    2: {
+        "name": "Digital Product B",
+        "price": 599,
+        "group_id": -1003778035299
+    },
+    3: {
+        "name": "Digital Product C",
+        "price": 1199,
+        "group_id": -1004203063772
+    }
+}
 
-pending_funds = {}
+# =========================================================
+# RUNTIME STATE
+# =========================================================
 
-# Duplicate-click protection
+user_states = {}
 recent_purchases = {}
 
-
 # =========================================================
-# 🏠 MAIN MENU
+# HELPERS
 # =========================================================
 
-def main_menu(user_id=None):
+def now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    keyboard = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
-    )
 
-    keyboard.row(
-        "🛍 Products",
-        "💰 Balance"
-    )
+def is_admin(user_id):
+    return user_id == ADMIN_ID
 
-    keyboard.row(
-        "💳 Add Funds",
-        "📜 My Orders"
-    )
 
-    keyboard.row(
-        "👤 Profile"
-    )
-
-    # Admin button ONLY for owner
-    if user_id == ADMIN_ID:
-
-        keyboard.row(
-            "👨‍💼 Admin Panel"
-        )
-
-    return keyboard
+def safe_int(value, default=0):
+    try:
+        return int(value)
+    except Exception:
+        return default
 
 
 # =========================================================
-# 👑 ADMIN MENU
+# BALANCE DATABASE
+# =========================================================
+#
+# Supported old format:
+# USER: 123 | BALANCE: 100
+#
+# New format:
+# USER: 123 | BALANCE: 100 | REF: 456 | REWARDED: 0 | REF_BAL: 20
 # =========================================================
 
-def admin_menu():
+def parse_balance_db(text):
+    users = {}
 
-    keyboard = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
-    )
-
-    keyboard.row(
-        "💳 Add Balance",
-        "📊 Statistics"
-    )
-
-    keyboard.row(
-        "🏠 Main Menu"
-    )
-
-    return keyboard
-
-
-# =========================================================
-# 🛍 PRODUCT MENU
-# =========================================================
-
-def product_menu():
-
-    keyboard = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
-    )
-
-    keyboard.row(
-        "🛒 OBB & FILES",
-        "🛒 SAFE HACK (1-month)"
-    )
-
-    keyboard.row(
-        "🛒 SAFE HACK (full-season)"
-    )
-
-    keyboard.row(
-        "🏠 Main Menu"
-    )
-
-    return keyboard
-
-
-# =========================================================
-# BACK MENU
-# =========================================================
-
-def back_menu():
-
-    keyboard = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
-    )
-
-    keyboard.row(
-        "🏠 Main Menu"
-    )
-
-    return keyboard
-
-
-# =========================================================
-# 🟢 INLINE JOIN BUTTON
-# =========================================================
-
-def join_button(invite_link):
-
-    keyboard = types.InlineKeyboardMarkup()
-
-    keyboard.add(
-        types.InlineKeyboardButton(
-            "🟢 JOIN PAID GROUP 🟢",
-            url=invite_link
-        )
-    )
-
-    return keyboard
-
-
-# =========================================================
-# 💰 BALANCE DATABASE
-# =========================================================
-
-def parse_balances(text):
-
-    balances = {}
+    if not text:
+        return users
 
     for line in text.splitlines():
-
         line = line.strip()
 
         if not line.startswith("USER:"):
             continue
 
-        try:
+        parts = [x.strip() for x in line.split("|")]
 
-            parts = line.split("|")
+        data = {}
 
-            user_id = int(
-                parts[0]
-                .split(":", 1)[1]
-                .strip()
-            )
+        for part in parts:
+            if ":" not in part:
+                continue
 
-            balance = int(
-                float(
-                    parts[1]
-                    .split(":", 1)[1]
-                    .strip()
-                )
-            )
+            key, value = part.split(":", 1)
+            data[key.strip()] = value.strip()
 
-            balances[user_id] = balance
+        user_id = safe_int(data.get("USER"))
 
-        except Exception:
-
+        if not user_id:
             continue
 
-    return balances
+        users[user_id] = {
+            "balance": safe_int(data.get("BALANCE")),
+            "ref": safe_int(data.get("REF")),
+            "rewarded": safe_int(data.get("REWARDED")),
+            "ref_balance": safe_int(data.get("REF_BAL"))
+        }
+
+    return users
 
 
-def format_balances(balances):
-
-    lines = [
-        "💰 SPEEDFISTT BALANCE DATABASE",
-        ""
-    ]
-
-    if not balances:
-
-        lines.append(
-            "No users registered yet."
+def load_balance_db():
+    try:
+        forwarded = bot.forward_message(
+            ADMIN_ID,
+            BALANCE_DB_CHAT_ID,
+            BALANCE_DB_MESSAGE_ID
         )
 
-    else:
-
-        for user_id in sorted(balances):
-
-            lines.append(
-                f"USER: {user_id} | BALANCE: {balances[user_id]}"
-            )
-
-    return "\n".join(lines)
-
-
-def read_balance_message():
-
-    forwarded = bot.forward_message(
-        chat_id=ADMIN_ID,
-        from_chat_id=CHANNEL_ID,
-        message_id=BALANCE_MESSAGE_ID
-    )
-
-    try:
-
-        return forwarded.text or ""
-
-    finally:
+        text = forwarded.text or ""
 
         try:
-
             bot.delete_message(
                 ADMIN_ID,
                 forwarded.message_id
             )
-
         except Exception:
-
             pass
 
+        return parse_balance_db(text)
 
-def get_balances():
-
-    text = read_balance_message()
-
-    return parse_balances(text)
+    except Exception:
+        logging.exception("BALANCE DB LOAD ERROR")
+        return None
 
 
-def save_balances(balances):
+def save_balance_db(users):
+    lines = []
 
-    new_text = format_balances(
-        balances
+    for user_id, data in users.items():
+        lines.append(
+            f"USER: {user_id} | "
+            f"BALANCE: {data.get('balance', 0)} | "
+            f"REF: {data.get('ref', 0)} | "
+            f"REWARDED: {data.get('rewarded', 0)} | "
+            f"REF_BAL: {data.get('ref_balance', 0)}"
+        )
+
+    new_text = "\n".join(lines)
+
+    try:
+        bot.edit_message_text(
+            new_text if new_text else "DATABASE EMPTY",
+            BALANCE_DB_CHAT_ID,
+            BALANCE_DB_MESSAGE_ID
+        )
+        return True
+
+    except Exception:
+        logging.exception("BALANCE DB SAVE ERROR")
+        return False
+
+
+def get_or_create_user(users, user_id):
+    if user_id not in users:
+        users[user_id] = {
+            "balance": 0,
+            "ref": 0,
+            "rewarded": 0,
+            "ref_balance": 0
+        }
+
+    return users[user_id]
+
+
+# =========================================================
+# ORDERS DATABASE
+# =========================================================
+
+def load_orders_db():
+    try:
+        forwarded = bot.forward_message(
+            ADMIN_ID,
+            ORDERS_DB_CHAT_ID,
+            ORDERS_DB_MESSAGE_ID
+        )
+
+        text = forwarded.text or ""
+
+        try:
+            bot.delete_message(
+                ADMIN_ID,
+                forwarded.message_id
+            )
+        except Exception:
+            pass
+
+        return text
+
+    except Exception:
+        logging.exception("ORDERS DB LOAD ERROR")
+        return None
+
+
+def save_orders_db(text):
+    if text is None:
+        return False
+
+    try:
+        bot.edit_message_text(
+            text if text else "DATABASE EMPTY",
+            ORDERS_DB_CHAT_ID,
+            ORDERS_DB_MESSAGE_ID
+        )
+        return True
+
+    except Exception:
+        logging.exception("ORDERS DB SAVE ERROR")
+        return False
+
+
+def append_order(order_line):
+    text = load_orders_db()
+
+    if text is None:
+        return False
+
+    lines = [
+        x.strip()
+        for x in text.splitlines()
+        if x.strip()
+    ]
+
+    # Keep coupon lines
+    coupon_lines = [
+        x for x in lines
+        if x.startswith("COUPON|")
+    ]
+
+    order_lines = [
+        x for x in lines
+        if x.startswith("ORDER|")
+    ]
+
+    order_lines.append(order_line)
+
+    # Latest 40 orders
+    order_lines = order_lines[-40:]
+
+    final_lines = order_lines + coupon_lines
+
+    return save_orders_db("\n".join(final_lines))
+
+
+# =========================================================
+# MANDATORY JOIN CHECK
+# =========================================================
+
+def is_member_of_channel(user_id, channel_id):
+    try:
+        member = bot.get_chat_member(
+            channel_id,
+            user_id
+        )
+
+        return member.status in (
+            "member",
+            "administrator",
+            "creator"
+        )
+
+    except Exception as e:
+        logging.warning(
+            "CHANNEL CHECK ERROR %s: %s",
+            channel_id,
+            e
+        )
+        return False
+
+
+def check_all_channels(user_id):
+    missing = []
+
+    for channel in MANDATORY_CHANNELS:
+        if not is_member_of_channel(
+            user_id,
+            channel["id"]
+        ):
+            missing.append(channel)
+
+    return missing
+
+
+def send_join_required(chat_id):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+
+    for channel in MANDATORY_CHANNELS:
+        markup.add(
+            types.InlineKeyboardButton(
+                f"📢 JOIN {channel['name']}",
+                url=channel["link"]
+            )
+        )
+
+    markup.add(
+        types.InlineKeyboardButton(
+            "✅ I'VE JOINED",
+            callback_data="check_join"
+        )
     )
 
-    bot.edit_message_text(
-        text=new_text,
-        chat_id=CHANNEL_ID,
-        message_id=BALANCE_MESSAGE_ID
+    bot.send_message(
+        chat_id,
+        "🔐 <b>Join Required</b>\n\n"
+        "Bot use karne se pehle neeche diye gaye "
+        "teeno channels join karo.\n\n"
+        "Join karne ke baad "
+        "<b>✅ I'VE JOINED</b> press karo.",
+        parse_mode="HTML",
+        reply_markup=markup
+    )
+
+
+def require_join(message):
+    missing = check_all_channels(message.from_user.id)
+
+    if missing:
+        send_join_required(message.chat.id)
+        return False
+
+    return True
+
+
+# =========================================================
+# MAIN MENU
+# =========================================================
+
+def main_menu(user_id):
+    markup = types.ReplyKeyboardMarkup(
+        resize_keyboard=True
+    )
+
+    markup.row(
+        "🛍 Products",
+        "💰 Balance"
+    )
+
+    markup.row(
+        "💳 Add Funds",
+        "📜 My Orders"
+    )
+
+    markup.row(
+        "👤 Profile",
+        "👥 Referral"
+    )
+
+    if is_admin(user_id):
+        markup.row("👨‍💼 Admin Panel")
+
+    return markup
+
+
+def admin_menu():
+    markup = types.ReplyKeyboardMarkup(
+        resize_keyboard=True
+    )
+
+    markup.row(
+        "💳 Add Balance",
+        "📊 Statistics"
+    )
+
+    markup.row("🏠 Main Menu")
+
+    return markup
+
+
+# =========================================================
+# PRODUCTS MENU
+# =========================================================
+
+def products_menu():
+    markup = types.ReplyKeyboardMarkup(
+        resize_keyboard=True
+    )
+
+    markup.row(
+        "🛒 Buy Product 1",
+        "🛒 Buy Product 2"
+    )
+
+    markup.row(
+        "🛒 Buy Product 3"
+    )
+
+    markup.row(
+        "🎟 Apply Coupon",
+        "🏠 Main Menu"
+    )
+
+    return markup
+
+
+def send_products(chat_id):
+    text = (
+        "🛍 <b>Products</b>\n\n"
+        "1️⃣ Digital Product A — ₹499\n"
+        "2️⃣ Digital Product B — ₹599\n"
+        "3️⃣ Digital Product C — ₹1199\n\n"
+        "👇 Product select karke purchase karo."
+    )
+
+    bot.send_message(
+        chat_id,
+        text,
+        parse_mode="HTML",
+        reply_markup=products_menu()
     )
 
 
 # =========================================================
-# 📜 ORDERS DATABASE
+# COUPON HELPERS
 # =========================================================
 
-def parse_orders(text):
+def parse_coupons(text):
+    coupons = {}
+
+    if not text:
+        return coupons
+
+    for line in text.splitlines():
+        if not line.startswith("COUPON|"):
+            continue
+
+        parts = line.split("|")
+
+        if len(parts) < 6:
+            continue
+
+        code = parts[1].upper()
+
+        coupons[code] = {
+            "pct": safe_int(parts[2]),
+            "max": safe_int(parts[3]),
+            "used": safe_int(parts[4]),
+            "active": safe_int(parts[5])
+        }
+
+    return coupons
+
+
+def get_coupon(code):
+    text = load_orders_db()
+
+    if text is None:
+        return None
+
+    coupons = parse_coupons(text)
+
+    return coupons.get(code.upper())
+
+
+def update_coupon_usage(code):
+    text = load_orders_db()
+
+    if text is None:
+        return False
+
+    lines = []
+
+    updated = False
+
+    for line in text.splitlines():
+        if not line.startswith("COUPON|"):
+            lines.append(line)
+            continue
+
+        parts = line.split("|")
+
+        if len(parts) < 6:
+            lines.append(line)
+            continue
+
+        if parts[1].upper() == code.upper():
+            used = safe_int(parts[4]) + 1
+
+            parts[4] = str(used)
+
+            line = "|".join(parts)
+            updated = True
+
+        lines.append(line)
+
+    if not updated:
+        return False
+
+    return save_orders_db("\n".join(
+        x for x in lines if x.strip()
+    ))
+
+
+# =========================================================
+# REFERRAL DEEP LINK
+# =========================================================
+
+def get_bot_username():
+    try:
+        me = bot.get_me()
+        return me.username
+    except Exception:
+        return None
+
+
+def referral_link(user_id):
+    username = get_bot_username()
+
+    if not username:
+        return None
+
+    return f"https://t.me/{username}?start=ref_{user_id}"
+
+
+# =========================================================
+# START
+# =========================================================
+
+@bot.message_handler(commands=["start"])
+def start_command(message):
+    user_id = message.from_user.id
+
+    args = message.text.split(maxsplit=1)
+
+    referrer_id = 0
+
+    if len(args) > 1:
+        arg = args[1].strip()
+
+        if arg.startswith("ref_"):
+            referrer_id = safe_int(
+                arg.replace("ref_", "", 1)
+            )
+
+    users = load_balance_db()
+
+    if users is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Database temporarily unavailable. "
+            "Please try again later."
+        )
+        return
+
+    user = get_or_create_user(users, user_id)
+
+    # Save referral attribution only once
+    if (
+        referrer_id
+        and referrer_id != user_id
+        and user["ref"] == 0
+        and referrer_id in users
+    ):
+        user["ref"] = referrer_id
+        save_balance_db(users)
+
+    missing = check_all_channels(user_id)
+
+    if missing:
+        send_join_required(message.chat.id)
+        return
+
+    bot.send_message(
+        message.chat.id,
+        "👑 Owner: @SpeedFistt\n\n"
+        "Welcome! 👋\n"
+        "Neeche menu se option select karo.",
+        reply_markup=main_menu(user_id)
+    )
+
+
+# =========================================================
+# JOIN CALLBACK
+# =========================================================
+
+@bot.callback_query_handler(
+    func=lambda call: call.data == "check_join"
+)
+def check_join_callback(call):
+    user_id = call.from_user.id
+
+    missing = check_all_channels(user_id)
+
+    if missing:
+        bot.answer_callback_query(
+            call.id,
+            "❌ Abhi saare channels join nahi hue.",
+            show_alert=True
+        )
+        return
+
+    bot.answer_callback_query(
+        call.id,
+        "✅ Verification successful!"
+    )
+
+    try:
+        bot.delete_message(
+            call.message.chat.id,
+            call.message.message_id
+        )
+    except Exception:
+        pass
+
+    bot.send_message(
+        call.message.chat.id,
+        "✅ <b>Verified!</b>\n\n"
+        "Ab aap bot use kar sakte ho.",
+        parse_mode="HTML",
+        reply_markup=main_menu(user_id)
+    )
+
+
+# =========================================================
+# BALANCE
+# =========================================================
+
+def show_balance(chat_id, user_id):
+    users = load_balance_db()
+
+    if users is None:
+        bot.send_message(
+            chat_id,
+            "⚠️ Database unavailable."
+        )
+        return
+
+    user = get_or_create_user(users, user_id)
+
+    if user_id not in users:
+        save_balance_db(users)
+
+    bot.send_message(
+        chat_id,
+        f"💰 <b>Main Balance:</b> ₹{user['balance']}\n"
+        f"🎁 <b>Referral Balance:</b> ₹{user['ref_balance']}\n\n"
+        f"ℹ️ Referral balance sirf purchases mein use ho sakta hai.",
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# PROFILE
+# =========================================================
+
+def show_profile(message):
+    user = message.from_user
+
+    username = (
+        f"@{user.username}"
+        if user.username
+        else "Not set"
+    )
+
+    bot.send_message(
+        message.chat.id,
+        "👤 <b>Profile</b>\n\n"
+        f"🆔 ID: <code>{user.id}</code>\n"
+        f"👤 Username: {username}",
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# REFERRAL PAGE
+# =========================================================
+
+def show_referral(message):
+    user_id = message.from_user.id
+
+    link = referral_link(user_id)
+
+    if not link:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Referral link generate nahi ho saka."
+        )
+        return
+
+    users = load_balance_db()
+
+    if users is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Database unavailable."
+        )
+        return
+
+    user = get_or_create_user(users, user_id)
+
+    bot.send_message(
+        message.chat.id,
+        "👥 <b>Referral</b>\n\n"
+        f"🔗 Your Referral Link:\n"
+        f"<code>{link}</code>\n\n"
+        "💸 Reward: ₹20\n"
+        "Reward tab milega jab referred user apni "
+        "first successful purchase karega.\n\n"
+        f"🎁 Current Referral Balance: ₹{user['ref_balance']}\n\n"
+        "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta.\n"
+        "Maximum 50% product price tak use ho sakta hai.",
+        parse_mode="HTML"
+    )
+
+# =========================================================
+# PURCHASE / DELIVERY SYSTEM
+# =========================================================
+
+def calculate_coupon_discount(price, coupon):
+    if not coupon:
+        return 0
+
+    pct = coupon.get("pct", 0)
+
+    if pct < 0:
+        pct = 0
+
+    if pct > 100:
+        pct = 100
+
+    return (price * pct) // 100
+
+
+def create_product_invite(product_id):
+    product = PRODUCTS.get(product_id)
+
+    if not product:
+        return None
+
+    group_id = product["group_id"]
+
+    # Fresh invite:
+    # - 1 user only
+    # - valid for 24 hours
+    expire_timestamp = int(
+        (datetime.now() + timedelta(hours=24)).timestamp()
+    )
+
+    try:
+        invite = bot.create_chat_invite_link(
+            chat_id=group_id,
+            name=f"Product {product_id}",
+            expire_date=expire_timestamp,
+            member_limit=1
+        )
+
+        return invite.invite_link
+
+    except Exception:
+        logging.exception(
+            "INVITE CREATE ERROR product=%s",
+            product_id
+        )
+        return None
+
+
+def generate_order_id(user_id, product_id):
+    timestamp = int(time.time())
+
+    return f"ORD{timestamp}{user_id % 10000}{product_id}"
+
+
+def get_user_orders(user_id):
+    text = load_orders_db()
+
+    if text is None:
+        return None
 
     orders = []
 
     for line in text.splitlines():
-
-        line = line.strip()
-
         if not line.startswith("ORDER|"):
             continue
 
-        try:
+        parts = line.split("|")
 
-            parts = line.split("|")
-
-            if len(parts) < 8:
-                continue
-
-            order = {
-
-                "order_id": parts[1],
-
-                "user_id": int(
-                    parts[2]
-                ),
-
-                "product_id": int(
-                    parts[3]
-                ),
-
-                "product_name": parts[4],
-
-                "price": int(
-                    parts[5]
-                ),
-
-                "date": parts[6],
-
-                "status": parts[7]
-            }
-
-            orders.append(
-                order
-            )
-
-        except Exception:
-
+        if len(parts) < 9:
             continue
+
+        # ORDER|orderid|userid|productid|productname|price|date|status|coupon
+        order_user_id = safe_int(parts[2])
+
+        if order_user_id != user_id:
+            continue
+
+        orders.append({
+            "order_id": parts[1],
+            "user_id": order_user_id,
+            "product_id": safe_int(parts[3]),
+            "product_name": parts[4],
+            "price": safe_int(parts[5]),
+            "date": parts[6],
+            "status": parts[7],
+            "coupon": parts[8]
+        })
 
     return orders
 
 
-def format_orders(orders):
+def show_orders(message):
+    user_id = message.from_user.id
+
+    orders = get_user_orders(user_id)
+
+    if orders is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Orders database unavailable."
+        )
+        return
+
+    if not orders:
+        bot.send_message(
+            message.chat.id,
+            "📜 <b>My Orders</b>\n\n"
+            "Abhi koi order nahi hai.",
+            parse_mode="HTML"
+        )
+        return
+
+    orders = orders[-10:]
+    orders.reverse()
 
     lines = [
-        "📜 SPEEDFISTT ORDERS DATABASE",
+        "📜 <b>My Orders</b>",
         ""
     ]
 
-    if not orders:
+    for order in orders:
+        coupon_text = ""
+
+        if order["coupon"] and order["coupon"] != "-":
+            coupon_text = f"\n🎟 Coupon: {order['coupon']}"
 
         lines.append(
-            "No orders yet."
+            f"🧾 <b>{order['order_id']}</b>\n"
+            f"📦 {order['product_name']}\n"
+            f"💰 ₹{order['price']}\n"
+            f"📅 {order['date']}\n"
+            f"📌 {order['status']}"
+            f"{coupon_text}\n"
+            f"🔑 <code>/access {order['order_id']}</code>\n"
         )
-
-    else:
-
-        for order in orders[-MAX_ORDERS:]:
-
-            lines.append(
-                "ORDER|"
-                f"{order['order_id']}|"
-                f"{order['user_id']}|"
-                f"{order['product_id']}|"
-                f"{order['product_name']}|"
-                f"{order['price']}|"
-                f"{order['date']}|"
-                f"{order['status']}"
-            )
-
-    return "\n".join(lines)
-
-
-def read_orders_message():
-
-    forwarded = bot.forward_message(
-        chat_id=ADMIN_ID,
-        from_chat_id=CHANNEL_ID,
-        message_id=ORDERS_MESSAGE_ID
-    )
-
-    try:
-
-        return forwarded.text or ""
-
-    finally:
-
-        try:
-
-            bot.delete_message(
-                ADMIN_ID,
-                forwarded.message_id
-            )
-
-        except Exception:
-
-            pass
-
-
-def get_orders():
-
-    text = read_orders_message()
-
-    return parse_orders(text)
-
-
-def save_orders(orders):
-
-    orders = orders[-MAX_ORDERS:]
-
-    bot.edit_message_text(
-        text=format_orders(orders),
-        chat_id=CHANNEL_ID,
-        message_id=ORDERS_MESSAGE_ID
-    )
-
-
-def add_order(order):
-
-    with order_lock:
-
-        orders = get_orders()
-
-        orders.append(
-            order
-        )
-
-        save_orders(
-            orders
-        )
-
-
-# =========================================================
-# 🧾 ORDER ID
-# =========================================================
-
-def generate_order_id():
-
-    return (
-        "SF"
-        + str(
-            int(
-                time.time()
-                * 1000
-            )
-        )[-10:]
-    )
-
-
-# =========================================================
-# 👤 REGISTER USER
-# =========================================================
-
-def register_user(user_id):
-
-    with balance_lock:
-
-        balances = get_balances()
-
-        if user_id not in balances:
-
-            balances[user_id] = 0
-
-            save_balances(
-                balances
-            )
-
-
-# =========================================================
-# ⚡ PREMIUM WELCOME
-# =========================================================
-
-def send_welcome(
-    chat_id,
-    user_id
-):
-
-    text = (
-        "╔═══════════════════╗\n"
-        "      ⚡ BGMI HACK STORE\n"
-        "╚═══════════════════╝\n\n"
-
-        "👋 Welcome to the store!\n\n"
-
-        "🛍 Digital Products\n"
-        "⚡ Fast & Secure Delivery\n"
-        "💳 Easy Balance System\n"
-        "📜 Order History\n"
-        "🔐 Private Group Access\n\n"
-
-        f"{USER_BRAND}"
-
-        "👇 Choose an option below\n\n"
-
-    )
 
     bot.send_message(
-        chat_id,
-        text,
-        reply_markup=main_menu(
-            user_id
-        )
+        message.chat.id,
+        "\n".join(lines),
+        parse_mode="HTML"
     )
 
 
 # =========================================================
-# /START
+# SUCCESSFUL FIRST PURCHASE REFERRAL REWARD
+# =========================================================
+
+def reward_referrer_after_first_purchase(
+    users,
+    buyer_id
+):
+    buyer = users.get(buyer_id)
+
+    if not buyer:
+        return False
+
+    # Already rewarded
+    if buyer.get("rewarded", 0) == 1:
+        return False
+
+    referrer_id = buyer.get("ref", 0)
+
+    if not referrer_id:
+        return False
+
+    referrer = users.get(referrer_id)
+
+    if not referrer:
+        return False
+
+    # ₹20 referral reward
+    referrer["ref_balance"] = (
+        referrer.get("ref_balance", 0) + 20
+    )
+
+    buyer["rewarded"] = 1
+
+    return True
+
+
+# =========================================================
+# PURCHASE CONFIRMATION
+# =========================================================
+
+def send_purchase_confirmation(
+    message,
+    product_id,
+    coupon_code=None
+):
+    user_id = message.from_user.id
+
+    # -----------------------------------------------------
+    # Mandatory channels check AGAIN
+    # -----------------------------------------------------
+
+    if not require_join(message):
+        return
+
+    product = PRODUCTS.get(product_id)
+
+    if not product:
+        bot.send_message(
+            message.chat.id,
+            "❌ Invalid product."
+        )
+        return
+
+    # -----------------------------------------------------
+    # Rapid duplicate purchase protection
+    # -----------------------------------------------------
+
+    purchase_key = (user_id, product_id)
+
+    previous_time = recent_purchases.get(
+        purchase_key,
+        0
+    )
+
+    if time.time() - previous_time < 5:
+        bot.send_message(
+            message.chat.id,
+            "⏳ Please wait a few seconds."
+        )
+        return
+
+    recent_purchases[purchase_key] = time.time()
+
+    # -----------------------------------------------------
+    # Load balance database
+    # -----------------------------------------------------
+
+    users = load_balance_db()
+
+    if users is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Balance database unavailable.\n"
+            "Purchase cancelled."
+        )
+        return
+
+    user = get_or_create_user(
+        users,
+        user_id
+    )
+
+    # -----------------------------------------------------
+    # Coupon
+    # -----------------------------------------------------
+
+    coupon = None
+    coupon_code_clean = "-"
+
+    if coupon_code:
+        coupon_code_clean = coupon_code.upper()
+
+        coupon = get_coupon(
+            coupon_code_clean
+        )
+
+        if not coupon:
+            bot.send_message(
+                message.chat.id,
+                "❌ Coupon invalid ya disabled hai."
+            )
+            return
+
+        if coupon.get("active", 0) != 1:
+            bot.send_message(
+                message.chat.id,
+                "❌ Coupon inactive hai."
+            )
+            return
+
+        max_uses = coupon.get("max", 0)
+        used = coupon.get("used", 0)
+
+        if max_uses > 0 and used >= max_uses:
+            bot.send_message(
+                message.chat.id,
+                "❌ Coupon usage limit complete ho gayi."
+            )
+            return
+
+    # -----------------------------------------------------
+    # Calculate price
+    # -----------------------------------------------------
+
+    original_price = product["price"]
+
+    coupon_discount = calculate_coupon_discount(
+        original_price,
+        coupon
+    )
+
+    price_after_coupon = (
+        original_price - coupon_discount
+    )
+
+    # -----------------------------------------------------
+    # Referral balance max 50%
+    # -----------------------------------------------------
+
+    referral_balance = user.get(
+        "ref_balance",
+        0
+    )
+
+    max_referral_allowed = (
+        price_after_coupon // 2
+    )
+
+    referral_used = min(
+        referral_balance,
+        max_referral_allowed
+    )
+
+    main_balance_needed = (
+        price_after_coupon - referral_used
+    )
+
+    main_balance = user.get(
+        "balance",
+        0
+    )
+
+    # -----------------------------------------------------
+    # Check balance
+    # -----------------------------------------------------
+
+    if main_balance < main_balance_needed:
+        bot.send_message(
+            message.chat.id,
+            "❌ <b>Insufficient Balance</b>\n\n"
+            f"📦 Product: {product['name']}\n"
+            f"💰 Product Price: ₹{original_price}\n"
+            f"🎟 Coupon Discount: ₹{coupon_discount}\n"
+            f"💳 After Coupon: ₹{price_after_coupon}\n"
+            f"🎁 Referral Used: ₹{referral_used}\n"
+            f"💵 Main Balance Required: ₹{main_balance_needed}\n"
+            f"💰 Your Main Balance: ₹{main_balance}",
+            parse_mode="HTML"
+        )
+        return
+
+    # -----------------------------------------------------
+    # CREATE INVITE FIRST
+    # -----------------------------------------------------
+    #
+    # Important:
+    # Invite fail hua to balance deduct nahi hoga.
+    # -----------------------------------------------------
+
+    invite_link = create_product_invite(
+        product_id
+    )
+
+    if not invite_link:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Product access link generate nahi ho saka.\n"
+            "Balance deduct nahi hua.\n"
+            "Please try again later."
+        )
+        return
+
+    # -----------------------------------------------------
+    # Deduct balance
+    # -----------------------------------------------------
+
+    old_main_balance = user["balance"]
+    old_ref_balance = user["ref_balance"]
+
+    user["balance"] = (
+        old_main_balance - main_balance_needed
+    )
+
+    user["ref_balance"] = (
+        old_ref_balance - referral_used
+    )
+
+    # -----------------------------------------------------
+    # Referral reward
+    # -----------------------------------------------------
+
+    reward_given = reward_referrer_after_first_purchase(
+        users,
+        user_id
+    )
+
+    # -----------------------------------------------------
+    # Save balance
+    # -----------------------------------------------------
+
+    if not save_balance_db(users):
+        # Best-effort rollback in memory/database.
+        # Telegram DB is not transactional.
+        user["balance"] = old_main_balance
+        user["ref_balance"] = old_ref_balance
+
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Balance update failed.\n"
+            "Purchase cancelled. Please try again."
+        )
+        return
+
+    # -----------------------------------------------------
+    # Coupon usage
+    # -----------------------------------------------------
+
+    if coupon:
+        if not update_coupon_usage(
+            coupon_code_clean
+        ):
+            logging.warning(
+                "COUPON USAGE UPDATE FAILED: %s",
+                coupon_code_clean
+            )
+
+    # -----------------------------------------------------
+    # Create order
+    # -----------------------------------------------------
+
+    order_id = generate_order_id(
+        user_id,
+        product_id
+    )
+
+    order_line = (
+        f"ORDER|"
+        f"{order_id}|"
+        f"{user_id}|"
+        f"{product_id}|"
+        f"{product['name']}|"
+        f"{price_after_coupon}|"
+        f"{now_str()}|"
+        f"DELIVERED|"
+        f"{coupon_code_clean}"
+    )
+
+    order_saved = append_order(
+        order_line
+    )
+
+    if not order_saved:
+        logging.error(
+            "ORDER SAVE FAILED: %s",
+            order_id
+        )
+
+    # -----------------------------------------------------
+    # SEND ACCESS BUTTON
+    # -----------------------------------------------------
+
+    markup = types.InlineKeyboardMarkup()
+
+    markup.add(
+        types.InlineKeyboardButton(
+            "🟢 JOIN GROUP 🟢",
+            url=invite_link
+        )
+    )
+
+    referral_text = ""
+
+    if reward_given:
+        referral_text = (
+            "\n\n🎉 Your referrer received ₹20 reward!"
+        )
+
+    coupon_text = ""
+
+    if coupon:
+        coupon_text = (
+            f"\n🎟 Coupon: {coupon_code_clean}"
+            f"\n💸 Discount: ₹{coupon_discount}"
+        )
+
+    bot.send_message(
+        message.chat.id,
+        "✅ <b>Purchase Successful!</b>\n\n"
+        f"🧾 Order ID: <code>{order_id}</code>\n"
+        f"📦 Product: {product['name']}\n"
+        f"💰 Original Price: ₹{original_price}"
+        f"{coupon_text}\n"
+        f"🎁 Referral Used: ₹{referral_used}\n"
+        f"💳 Paid From Main Balance: ₹{main_balance_needed}\n\n"
+        "🔐 Your private access link is ready.\n"
+        "⏱ Link expires in 24 hours.\n"
+        "👤 Link can be used by 1 member only."
+        f"{referral_text}",
+        parse_mode="HTML",
+        reply_markup=markup
+    )
+
+
+# =========================================================
+# PRODUCT PURCHASE HANDLERS
 # =========================================================
 
 @bot.message_handler(
-    commands=["start"]
+    func=lambda message:
+        message.text == "🛒 Buy Product 1"
 )
-def start_command(message):
+def buy_product_1(message):
+    send_purchase_confirmation(
+        message,
+        1
+    )
 
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "🛒 Buy Product 2"
+)
+def buy_product_2(message):
+    send_purchase_confirmation(
+        message,
+        2
+    )
+
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "🛒 Buy Product 3"
+)
+def buy_product_3(message):
+    send_purchase_confirmation(
+        message,
+        3
+    )
+
+
+# =========================================================
+# /BUY COMMAND
+# =========================================================
+#
+# Hidden/backup command. Normal users should use
+# ReplyKeyboard buttons.
+# =========================================================
+
+@bot.message_handler(commands=["buy"])
+def buy_command(message):
     user_id = message.from_user.id
 
-    try:
+    if not require_join(message):
+        return
 
-        register_user(
-            user_id
+    parts = message.text.split()
+
+    if len(parts) < 2:
+        bot.send_message(
+            message.chat.id,
+            "🛍 Products menu se product select karo.",
+            reply_markup=products_menu()
         )
+        return
 
-        pending_funds.pop(
+    product_id = safe_int(parts[1])
+
+    if product_id not in PRODUCTS:
+        bot.send_message(
+            message.chat.id,
+            "❌ Product not found."
+        )
+        return
+
+    coupon_code = None
+
+    if len(parts) >= 3:
+        coupon_code = parts[2].upper()
+
+    send_purchase_confirmation(
+        message,
+        product_id,
+        coupon_code
+    )
+
+
+# =========================================================
+# ACCESS PREVIOUS ORDER
+# =========================================================
+
+@bot.message_handler(commands=["access"])
+def access_order(message):
+    user_id = message.from_user.id
+
+    if not require_join(message):
+        return
+
+    parts = message.text.split()
+
+    if len(parts) < 2:
+        bot.send_message(
+            message.chat.id,
+            "Usage:\n"
+            "<code>/access ORDER_ID</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    requested_order_id = parts[1].strip()
+
+    orders = get_user_orders(user_id)
+
+    if orders is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Orders database unavailable."
+        )
+        return
+
+    found = None
+
+    for order in orders:
+        if order["order_id"] == requested_order_id:
+            found = order
+            break
+
+    if not found:
+        bot.send_message(
+            message.chat.id,
+            "❌ Order not found."
+        )
+        return
+
+    product_id = found["product_id"]
+
+    if product_id not in PRODUCTS:
+        bot.send_message(
+            message.chat.id,
+            "❌ Product no longer available."
+        )
+        return
+
+    # Fresh link again
+    invite_link = create_product_invite(
+        product_id
+    )
+
+    if not invite_link:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Fresh access link generate nahi ho saka."
+        )
+        return
+
+    markup = types.InlineKeyboardMarkup()
+
+    markup.add(
+        types.InlineKeyboardButton(
+            "🟢 JOIN GROUP 🟢",
+            url=invite_link
+        )
+    )
+
+    bot.send_message(
+        message.chat.id,
+        "🔐 <b>Fresh Access Link</b>\n\n"
+        f"🧾 Order: <code>{found['order_id']}</code>\n"
+        f"📦 {found['product_name']}\n\n"
+        "⏱ Link valid for 24 hours.\n"
+        "👤 One member only.",
+        parse_mode="HTML",
+        reply_markup=markup
+    )
+
+
+# =========================================================
+# COUPON APPLY FOR CURRENT PURCHASE
+# =========================================================
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "🎟 Apply Coupon"
+)
+def apply_coupon_start(message):
+    if not require_join(message):
+        return
+
+    user_states[message.from_user.id] = {
+        "stage": "coupon"
+    }
+
+    bot.send_message(
+        message.chat.id,
+        "🎟 <b>Enter Coupon Code</b>\n\n"
+        "Example:\n"
+        "<code>SPEED20</code>\n\n"
+        "Cancel karne ke liye /cancel bhejo.",
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# COUPON STATE HANDLER
+# =========================================================
+
+def handle_coupon_state(message):
+    user_id = message.from_user.id
+
+    state = user_states.get(user_id)
+
+    if not state:
+        return False
+
+    if state.get("stage") != "coupon":
+        return False
+
+    code = message.text.strip().upper()
+
+    if code == "/cancel":
+        user_states.pop(user_id, None)
+
+        bot.send_message(
+            message.chat.id,
+            "❌ Coupon cancelled.",
+            reply_markup=products_menu()
+        )
+        return True
+
+    coupon = get_coupon(code)
+
+    if not coupon:
+        bot.send_message(
+            message.chat.id,
+            "❌ Invalid coupon.\n"
+            "Dobara code bhejo ya /cancel."
+        )
+        return True
+
+    if coupon.get("active", 0) != 1:
+        bot.send_message(
+            message.chat.id,
+            "❌ Ye coupon inactive hai."
+        )
+        return True
+
+    if (
+        coupon.get("max", 0) > 0
+        and coupon.get("used", 0)
+        >= coupon.get("max", 0)
+    ):
+        bot.send_message(
+            message.chat.id,
+            "❌ Coupon usage limit complete hai."
+        )
+        return True
+
+    user_states.pop(
+        user_id,
+        None
+    )
+
+    bot.send_message(
+        message.chat.id,
+        f"✅ Coupon <b>{code}</b> available hai.\n\n"
+        f"🎟 Discount: {coupon['pct']}%\n"
+        f"📊 Used: {coupon['used']}/{coupon['max']}\n\n"
+        "Ab product select karo.\n"
+        "Coupon purchase ke time automatically apply karne ke liye "
+        "hidden command bhi available hai.",
+        parse_mode="HTML",
+        reply_markup=products_menu()
+    )
+
+    # Store selected coupon temporarily
+    user_states[user_id] = {
+        "stage": "selected_coupon",
+        "coupon": code
+    }
+
+    return True
+
+
+# =========================================================
+# PURCHASE WITH SELECTED COUPON
+# =========================================================
+
+def get_selected_coupon(user_id):
+    state = user_states.get(user_id)
+
+    if not state:
+        return None
+
+    if state.get("stage") != "selected_coupon":
+        return None
+
+    return state.get("coupon")
+
+
+def clear_selected_coupon(user_id):
+    state = user_states.get(user_id)
+
+    if state and state.get("stage") == "selected_coupon":
+        user_states.pop(
             user_id,
             None
         )
 
-        send_welcome(
-            message.chat.id,
-            user_id
-        )
 
-    except Exception:
+# =========================================================
+# OVERRIDE PRODUCT PURCHASE TO USE SELECTED COUPON
+# =========================================================
 
-        logging.exception(
-            "START ERROR"
-        )
+def purchase_from_button(message, product_id):
+    if not require_join(message):
+        return
 
-        bot.send_message(
-            message.chat.id,
-            "❌ Store setup error.\n\n"
-            "Please try again later."
-        )
+    coupon = get_selected_coupon(
+        message.from_user.id
+    )
+
+    send_purchase_confirmation(
+        message,
+        product_id,
+        coupon
+    )
+
+    clear_selected_coupon(
+        message.from_user.id
+    )
 
 
 # =========================================================
-# 💰 BALANCE
+# NOTE:
+# The three handlers above call send_purchase_confirmation
+# directly. To use selected coupon from keyboard, the
+# generic text router in Part 3 will route buttons through
+# purchase_from_button().
 # =========================================================
 
-@bot.message_handler(
-    commands=["balance"]
-)
-def balance_command(message):
 
-    user_id = message.from_user.id
+# =========================================================
+# ADD FUNDS SYSTEM
+# =========================================================
+
+def add_funds_start(message):
+    if not require_join(message):
+        return
+
+    user_states[message.from_user.id] = {
+        "stage": "amount"
+    }
+
+    bot.send_message(
+        message.chat.id,
+        "💳 <b>Add Funds</b>\n\n"
+        "Kitna amount add karna hai?\n\n"
+        "Example: <code>500</code>\n\n"
+        "Cancel: /cancel",
+        parse_mode="HTML"
+    )
+
+
+def send_payment_instructions(message, amount):
+    user_states[message.from_user.id] = {
+        "stage": "proof",
+        "amount": amount
+    }
+
+    qr_path = "qr.jpg"
+
+    text = (
+        "💳 <b>Payment Instructions</b>\n\n"
+        f"💰 Amount: <b>₹{amount}</b>\n\n"
+        "1️⃣ Neeche QR scan karke payment karo.\n"
+        "2️⃣ Payment ke baad UTR / Transaction ID "
+        "ya payment screenshot bhejo.\n"
+        "3️⃣ Admin verification ke baad balance add hoga.\n\n"
+        "👑 Payment Help: @SpeedFistt\n\n"
+        "⚠️ Payment karne se pehle amount verify kar lena."
+    )
 
     try:
+        if os.path.exists(qr_path):
+            with open(qr_path, "rb") as photo:
+                bot.send_photo(
+                    message.chat.id,
+                    photo,
+                    caption=text,
+                    parse_mode="HTML"
+                )
+        else:
+            bot.send_message(
+                message.chat.id,
+                text + "\n\n⚠️ QR file abhi available nahi hai.",
+                parse_mode="HTML"
+            )
 
-        balances = get_balances()
-
-        balance = balances.get(
-            user_id,
-            0
-        )
-
-        text = (
-            "╔════════════╗\n"
-            "       💰 BALANCE\n"
-            "╚════════════╝\n\n"
-            f"💵 Available Balance:  ₹{balance}\n\n"
-
-            "💳 Need more balance?\n"
-            "Use 💳 Add Funds.\n\n"
-            
-        )
-
+    except Exception:
         bot.send_message(
             message.chat.id,
             text,
-            reply_markup=main_menu(
-                user_id
-            )
+            parse_mode="HTML"
         )
 
-    except Exception:
+    bot.send_message(
+        message.chat.id,
+        "📸 Payment proof bhejo:\n"
+        "• UTR / Transaction ID text mein\n"
+        "• Ya screenshot/photo\n\n"
+        "Cancel: /cancel"
+    )
 
-        logging.exception(
-            "BALANCE ERROR"
+
+def handle_add_funds_amount(message):
+    user_id = message.from_user.id
+
+    state = user_states.get(user_id)
+
+    if not state or state.get("stage") != "amount":
+        return False
+
+    text = message.text.strip()
+
+    if text.lower() == "/cancel":
+        user_states.pop(user_id, None)
+
+        bot.send_message(
+            message.chat.id,
+            "❌ Add Funds cancelled.",
+            reply_markup=main_menu(user_id)
+        )
+        return True
+
+    amount = safe_int(text)
+
+    if amount <= 0:
+        bot.send_message(
+            message.chat.id,
+            "❌ Valid amount bhejo.\n"
+            "Example: 500"
+        )
+        return True
+
+    if amount > 100000:
+        bot.send_message(
+            message.chat.id,
+            "❌ Maximum single payment ₹100000 hai."
+        )
+        return True
+
+    send_payment_instructions(
+        message,
+        amount
+    )
+
+    return True
+
+
+def handle_add_funds_proof(message):
+    user_id = message.from_user.id
+
+    state = user_states.get(user_id)
+
+    if not state or state.get("stage") != "proof":
+        return False
+
+    amount = safe_int(
+        state.get("amount")
+    )
+
+    if amount <= 0:
+        user_states.pop(user_id, None)
+
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Payment request expired. "
+            "Please start Add Funds again."
+        )
+        return True
+
+    # -----------------------------------------------------
+    # Forward proof to admin
+    # -----------------------------------------------------
+
+    try:
+        bot.send_message(
+            ADMIN_ID,
+            "💳 <b>NEW FUNDING REQUEST</b>\n\n"
+            f"👤 User ID: <code>{user_id}</code>\n"
+            f"💰 Amount: ₹{amount}\n"
+            f"📅 Time: {now_str()}\n\n"
+            "Verify payment and then use:\n"
+            f"<code>/add {user_id} {amount}</code>",
+            parse_mode="HTML"
+        )
+
+        bot.forward_message(
+            ADMIN_ID,
+            message.chat.id,
+            message.message_id
         )
 
         bot.send_message(
             message.chat.id,
-            "❌ Could not check balance."
+            "✅ Payment proof received.\n\n"
+            f"💰 Amount: ₹{amount}\n"
+            "👨‍💼 Admin verification pending hai.\n\n"
+            "Verification ke baad balance update ho jayega."
+        )
+
+        user_states.pop(
+            user_id,
+            None
+        )
+
+    except Exception:
+        logging.exception(
+            "FUNDING PROOF ERROR"
+        )
+
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Proof send nahi ho saka.\n"
+            "Please try again."
+        )
+
+    return True
+
+
+# =========================================================
+# ADMIN: ADD BALANCE
+# =========================================================
+
+def admin_add_balance(user_id, amount):
+    users = load_balance_db()
+
+    if users is None:
+        return False, "Database unavailable."
+
+    user = get_or_create_user(
+        users,
+        user_id
+    )
+
+    user["balance"] += amount
+
+    if not save_balance_db(users):
+        return False, "Database save failed."
+
+    return True, user["balance"]
+
+
+@bot.message_handler(commands=["add"])
+def admin_add_command(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(
+            message.chat.id,
+            "❌ Admin only."
+        )
+        return
+
+    parts = message.text.split()
+
+    if len(parts) != 3:
+        bot.send_message(
+            message.chat.id,
+            "Usage:\n"
+            "<code>/add USER_ID AMOUNT</code>\n\n"
+            "Example:\n"
+            "<code>/add 123456789 500</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    target_user_id = safe_int(parts[1])
+    amount = safe_int(parts[2])
+
+    if target_user_id <= 0:
+        bot.send_message(
+            message.chat.id,
+            "❌ Invalid User ID."
+        )
+        return
+
+    if amount <= 0:
+        bot.send_message(
+            message.chat.id,
+            "❌ Invalid amount."
+        )
+        return
+
+    success, result = admin_add_balance(
+        target_user_id,
+        amount
+    )
+
+    if not success:
+        bot.send_message(
+            message.chat.id,
+            f"❌ {result}"
+        )
+        return
+
+    bot.send_message(
+        message.chat.id,
+        "✅ <b>Balance Added</b>\n\n"
+        f"👤 User ID: <code>{target_user_id}</code>\n"
+        f"💰 Added: ₹{amount}\n"
+        f"💳 New Balance: ₹{result}",
+        parse_mode="HTML"
+    )
+
+    # Notify user
+    try:
+        bot.send_message(
+            target_user_id,
+            "🎉 <b>Balance Updated</b>\n\n"
+            f"💰 Added: ₹{amount}\n"
+            f"💳 New Balance: ₹{result}",
+            parse_mode="HTML"
+        )
+    except Exception:
+        logging.warning(
+            "USER BALANCE NOTIFICATION FAILED: %s",
+            target_user_id
         )
 
 
 # =========================================================
-# 🛍 PRODUCTS
+# ADMIN PANEL
 # =========================================================
 
-def show_products(
-    chat_id,
-    user_id
-):
+def show_admin_panel(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(
+            message.chat.id,
+            "❌ Admin only."
+        )
+        return
 
-    text = (
-        "╔═══════════════════╗\n"
-        "        🛍 BGMI HACK STORE\n"
-        "╚═══════════════════╝\n\n"
+    bot.send_message(
+        message.chat.id,
+        "👨‍💼 <b>Admin Panel</b>\n\n"
+        "👑 Owner: @SpeedFistt\n\n"
+        "Neeche option select karo.",
+        parse_mode="HTML",
+        reply_markup=admin_menu()
+    )
 
-        "✨ PREMIUM DIGITAL PRODUCTS\n\n"
 
-        "① OBB & FILES\n"
-        "   💵 Price: ₹299\n"
-        "   ⚡ Instant Access\n\n"
+# =========================================================
+# ADMIN ADD BALANCE BUTTON
+# =========================================================
 
-        "② SAFE HACK (1-month)\n"
-        "   💵 Price: ₹499\n"
-        "   ⚡ Instant Access\n\n"
+def admin_add_balance_start(message):
+    if not is_admin(message.from_user.id):
+        return
 
-        "③ SAFE HACK (full season)\n"
-        "   💵 Price: ₹799\n"
-        "   ⚡ Instant Access\n\n"
+    user_states[message.from_user.id] = {
+        "stage": "admin_add"
+    }
 
-        "━━━━━━━━━━━━━━━━━━━━\n"
+    bot.send_message(
+        message.chat.id,
+        "💳 <b>Add Balance</b>\n\n"
+        "Format bhejo:\n"
+        "<code>USER_ID AMOUNT</code>\n\n"
+        "Example:\n"
+        "<code>123456789 500</code>\n\n"
+        "Cancel: /cancel",
+        parse_mode="HTML"
+    )
 
-        "🔐 Private Group Access\n"
-        "🟢 One-Time Invite\n"
-        "⏱️ 24 Hours Validity\n\n"
-        
-        f"{USER_BRAND}"
 
-        "👇 Select your product below.\n\n"
-        
+def handle_admin_add_state(message):
+    admin_id = message.from_user.id
+
+    if not is_admin(admin_id):
+        return False
+
+    state = user_states.get(admin_id)
+
+    if not state or state.get("stage") != "admin_add":
+        return False
+
+    if message.text.strip().lower() == "/cancel":
+        user_states.pop(admin_id, None)
+
+        bot.send_message(
+            message.chat.id,
+            "❌ Cancelled.",
+            reply_markup=admin_menu()
+        )
+        return True
+
+    parts = message.text.strip().split()
+
+    if len(parts) != 2:
+        bot.send_message(
+            message.chat.id,
+            "❌ Format:\n"
+            "<code>USER_ID AMOUNT</code>",
+            parse_mode="HTML"
+        )
+        return True
+
+    target_user_id = safe_int(parts[0])
+    amount = safe_int(parts[1])
+
+    if target_user_id <= 0 or amount <= 0:
+        bot.send_message(
+            message.chat.id,
+            "❌ Invalid User ID ya amount."
+        )
+        return True
+
+    success, result = admin_add_balance(
+        target_user_id,
+        amount
+    )
+
+    if not success:
+        bot.send_message(
+            message.chat.id,
+            f"❌ {result}"
+        )
+        return True
+
+    user_states.pop(
+        admin_id,
+        None
     )
 
     bot.send_message(
-        chat_id,
-        text,
-        reply_markup=product_menu()
+        message.chat.id,
+        "✅ <b>Balance Added</b>\n\n"
+        f"👤 User: <code>{target_user_id}</code>\n"
+        f"💰 Added: ₹{amount}\n"
+        f"💳 New Balance: ₹{result}",
+        parse_mode="HTML",
+        reply_markup=admin_menu()
+    )
+
+    try:
+        bot.send_message(
+            target_user_id,
+            "🎉 <b>Balance Added</b>\n\n"
+            f"💰 Amount: ₹{amount}\n"
+            f"💳 New Balance: ₹{result}",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+    return True
+
+
+# =========================================================
+# ADMIN STATISTICS
+# =========================================================
+
+def show_statistics(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(
+            message.chat.id,
+            "❌ Admin only."
+        )
+        return
+
+    users = load_balance_db()
+
+    if users is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Balance database unavailable."
+        )
+        return
+
+    orders_text = load_orders_db()
+
+    if orders_text is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Orders database unavailable."
+        )
+        return
+
+    total_users = len(users)
+
+    total_main_balance = sum(
+        data.get("balance", 0)
+        for data in users.values()
+    )
+
+    total_ref_balance = sum(
+        data.get("ref_balance", 0)
+        for data in users.values()
+    )
+
+    orders = []
+
+    for line in orders_text.splitlines():
+        if not line.startswith("ORDER|"):
+            continue
+
+        parts = line.split("|")
+
+        if len(parts) < 9:
+            continue
+
+        orders.append(parts)
+
+    total_orders = len(orders)
+
+    total_sales = sum(
+        safe_int(order[5])
+        for order in orders
+    )
+
+    product_counts = {
+        1: 0,
+        2: 0,
+        3: 0
+    }
+
+    for order in orders:
+        product_id = safe_int(order[3])
+
+        if product_id in product_counts:
+            product_counts[product_id] += 1
+
+    bot.send_message(
+        message.chat.id,
+        "📊 <b>Statistics</b>\n\n"
+        f"👥 Users: {total_users}\n"
+        f"📦 Orders: {total_orders}\n"
+        f"💰 Total Sales: ₹{total_sales}\n"
+        f"💳 User Main Balances: ₹{total_main_balance}\n"
+        f"🎁 Referral Balances: ₹{total_ref_balance}\n\n"
+        f"1️⃣ Product A Orders: {product_counts[1]}\n"
+        f"2️⃣ Product B Orders: {product_counts[2]}\n"
+        f"3️⃣ Product C Orders: {product_counts[3]}",
+        parse_mode="HTML"
     )
 
 
-@bot.message_handler(
-    commands=["products"]
-)
-def products_command(message):
+# =========================================================
+# COUPON ADMIN HELPERS
+# =========================================================
 
-    show_products(
+def create_coupon(
+    code,
+    pct,
+    max_uses
+):
+    code = code.upper().strip()
+
+    if not re.fullmatch(
+        r"[A-Z0-9_-]{3,30}",
+        code
+    ):
+        return False, "Invalid coupon code."
+
+    if pct < 1 or pct > 100:
+        return False, "Discount 1-100% ke beech hona chahiye."
+
+    if max_uses < 1:
+        return False, "Max uses minimum 1 hona chahiye."
+
+    text = load_orders_db()
+
+    if text is None:
+        return False, "Orders database unavailable."
+
+    coupons = parse_coupons(text)
+
+    if code in coupons:
+        return False, "Coupon already exists."
+
+    line = (
+        f"COUPON|{code}|{pct}|"
+        f"{max_uses}|0|1"
+    )
+
+    lines = [
+        x.strip()
+        for x in text.splitlines()
+        if x.strip()
+    ]
+
+    lines.append(line)
+
+    if not save_orders_db(
+        "\n".join(lines)
+    ):
+        return False, "Database save failed."
+
+    return True, "Coupon created."
+
+
+@bot.message_handler(commands=["createcoupon"])
+def create_coupon_command(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(
+            message.chat.id,
+            "❌ Admin only."
+        )
+        return
+
+    parts = message.text.split()
+
+    if len(parts) != 4:
+        bot.send_message(
+            message.chat.id,
+            "Usage:\n"
+            "<code>/createcoupon CODE PERCENT MAX_USES</code>\n\n"
+            "Example:\n"
+            "<code>/createcoupon SPEED20 20 10</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    code = parts[1]
+    pct = safe_int(parts[2])
+    max_uses = safe_int(parts[3])
+
+    success, result = create_coupon(
+        code,
+        pct,
+        max_uses
+    )
+
+    if success:
+        bot.send_message(
+            message.chat.id,
+            "✅ <b>Coupon Created</b>\n\n"
+            f"🎟 Code: <code>{code.upper()}</code>\n"
+            f"💸 Discount: {pct}%\n"
+            f"📊 Max Uses: {max_uses}",
+            parse_mode="HTML"
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            f"❌ {result}"
+        )
+
+
+@bot.message_handler(commands=["listcoupons"])
+def list_coupons_command(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(
+            message.chat.id,
+            "❌ Admin only."
+        )
+        return
+
+    text = load_orders_db()
+
+    if text is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Orders database unavailable."
+        )
+        return
+
+    coupons = parse_coupons(text)
+
+    if not coupons:
+        bot.send_message(
+            message.chat.id,
+            "🎟 No coupons found."
+        )
+        return
+
+    lines = [
+        "🎟 <b>Coupons</b>",
+        ""
+    ]
+
+    for code, data in coupons.items():
+        status = (
+            "🟢 ACTIVE"
+            if data["active"] == 1
+            else "🔴 DISABLED"
+        )
+
+        lines.append(
+            f"🎟 <code>{code}</code>\n"
+            f"💸 Discount: {data['pct']}%\n"
+            f"📊 Used: {data['used']}/{data['max']}\n"
+            f"📌 {status}\n"
+        )
+
+    bot.send_message(
+        message.chat.id,
+        "\n".join(lines),
+        parse_mode="HTML"
+    )
+
+
+@bot.message_handler(commands=["disablecoupon"])
+def disable_coupon_command(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(
+            message.chat.id,
+            "❌ Admin only."
+        )
+        return
+
+    parts = message.text.split()
+
+    if len(parts) != 2:
+        bot.send_message(
+            message.chat.id,
+            "Usage:\n"
+            "<code>/disablecoupon CODE</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    code = parts[1].upper()
+
+    text = load_orders_db()
+
+    if text is None:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Orders database unavailable."
+        )
+        return
+
+    found = False
+    lines = []
+
+    for line in text.splitlines():
+        if line.startswith("COUPON|"):
+            parts2 = line.split("|")
+
+            if (
+                len(parts2) >= 6
+                and parts2[1].upper() == code
+            ):
+                parts2[5] = "0"
+                line = "|".join(parts2)
+                found = True
+
+        lines.append(line)
+
+    if not found:
+        bot.send_message(
+            message.chat.id,
+            "❌ Coupon not found."
+        )
+        return
+
+    if save_orders_db("\n".join(lines)):
+        bot.send_message(
+            message.chat.id,
+            f"✅ Coupon <code>{code}</code> disabled.",
+            parse_mode="HTML"
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "❌ Database save failed."
+        )
+
+
+# =========================================================
+# CANCEL
+# =========================================================
+
+@bot.message_handler(commands=["cancel"])
+def cancel_command(message):
+    user_states.pop(
+        message.from_user.id,
+        None
+    )
+
+    if is_admin(message.from_user.id):
+        markup = admin_menu()
+    else:
+        markup = main_menu(
+            message.from_user.id
+        )
+
+    bot.send_message(
+        message.chat.id,
+        "❌ Current action cancelled.",
+        reply_markup=markup
+    )
+
+
+# =========================================================
+# PRODUCTS BUTTON
+# =========================================================
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "🛍 Products"
+)
+def products_button(message):
+    if not require_join(message):
+        return
+
+    send_products(
+        message.chat.id
+    )
+
+
+# =========================================================
+# BALANCE BUTTON
+# =========================================================
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "💰 Balance"
+)
+def balance_button(message):
+    if not require_join(message):
+        return
+
+    show_balance(
         message.chat.id,
         message.from_user.id
     )
 
 
 # =========================================================
-# 🔐 CREATE INVITE LINK
-# =========================================================
-
-def create_product_invite(
-    product_id
-):
-
-    product = PRODUCTS[
-        product_id
-    ]
-
-    group_id = product[
-        "group_id"
-    ]
-
-    expire_timestamp = int(
-        (
-            datetime.now()
-            + timedelta(hours=24)
-        ).timestamp()
-    )
-
-    invite = bot.create_chat_invite_link(
-
-        chat_id=group_id,
-
-        name=(
-            f"SpeedFistt "
-            f"Product {product_id}"
-        ),
-
-        expire_date=expire_timestamp,
-
-        member_limit=1
-    )
-
-    return invite.invite_link
-
-
-# =========================================================
-# 🛒 PURCHASE
-# =========================================================
-
-def purchase_product(
-    message,
-    product_id
-):
-
-    user_id = message.from_user.id
-
-    if product_id not in PRODUCTS:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Product not found."
-        )
-
-        return
-
-    product = PRODUCTS[
-        product_id
-    ]
-
-    price = product[
-        "price"
-    ]
-
-    product_name = product[
-        "name"
-    ]
-
-    # =====================================================
-    # DOUBLE CLICK PROTECTION
-    # =====================================================
-
-    purchase_key = (
-        user_id,
-        product_id
-    )
-
-    now = time.time()
-
-    last_time = recent_purchases.get(
-        purchase_key,
-        0
-    )
-
-    if now - last_time < 5:
-
-        bot.send_message(
-            message.chat.id,
-            "⏳ Please wait a few seconds."
-        )
-
-        return
-
-    recent_purchases[
-        purchase_key
-    ] = now
-
-    try:
-
-        # =================================================
-        # CHECK BALANCE
-        # =================================================
-
-        with balance_lock:
-
-            balances = get_balances()
-
-            current_balance = balances.get(
-                user_id,
-                0
-            )
-
-            if current_balance < price:
-
-                required = (
-                    price
-                    - current_balance
-                )
-
-                text = (
-                    "╔════════════════╗\n"
-                    "       💳 LOW BALANCE\n"
-                    "╚════════════════╝\n\n"
-
-                    f"🛍 {product_name}\n"
-                    f"💵 Price: ₹{price}\n"
-                    f"💰 Balance: ₹{current_balance}\n"
-                    f"📉 Need: ₹{required} more\n\n"
-
-                    "Please add funds first.\n\n"
-                    
-                )
-
-                bot.send_message(
-                    message.chat.id,
-                    text,
-                    reply_markup=main_menu(
-                        user_id
-                    )
-                )
-
-                return
-
-        # =================================================
-        # GENERATE DELIVERY LINK
-        # =================================================
-
-        try:
-
-            invite_link = create_product_invite(
-                product_id
-            )
-
-        except Exception:
-
-            logging.exception(
-                "INVITE CREATION ERROR"
-            )
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Delivery system is temporarily unavailable.\n\n"
-                "💰 Your balance was NOT deducted.\n\n"
-                "Please try again later."
-            )
-
-            return
-
-        # =================================================
-        # DEDUCT BALANCE
-        # =================================================
-
-        with balance_lock:
-
-            balances = get_balances()
-
-            current_balance = balances.get(
-                user_id,
-                0
-            )
-
-            if current_balance < price:
-
-                bot.send_message(
-                    message.chat.id,
-                    "❌ Balance changed.\n"
-                    "Please try again."
-                )
-
-                return
-
-            new_balance = (
-                current_balance
-                - price
-            )
-
-            balances[user_id] = (
-                new_balance
-            )
-
-            save_balances(
-                balances
-            )
-
-        # =================================================
-        # CREATE ORDER
-        # =================================================
-
-        order_id = generate_order_id()
-
-        date_text = datetime.now().strftime(
-            "%Y-%m-%d %H:%M"
-        )
-
-        order = {
-
-            "order_id": order_id,
-
-            "user_id": user_id,
-
-            "product_id": product_id,
-
-            "product_name": product_name,
-
-            "price": price,
-
-            "date": date_text,
-
-            "status": "DELIVERED"
-        }
-
-        try:
-
-            add_order(
-                order
-            )
-
-        except Exception:
-
-            logging.exception(
-                "ORDER SAVE ERROR"
-            )
-
-            # Restore balance
-            with balance_lock:
-
-                balances = get_balances()
-
-                balances[user_id] = (
-                    balances.get(
-                        user_id,
-                        0
-                    )
-                    + price
-                )
-
-                save_balances(
-                    balances
-                )
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Order could not be completed.\n\n"
-                "💰 Your balance has been restored."
-            )
-
-            return
-
-        # =================================================
-        # SUCCESS
-        # =================================================
-
-        success_text = (
-            "╔══════════════════╗\n"
-            "       ✅ ORDER COMPLETE\n"
-            "╚══════════════════╝\n\n"
-
-            "🎉 Purchase successful!\n\n"
-
-            f"🛍 PRODUCT: {product_name}\n"
-            f"💵 PAID: ₹{price}\n"
-            f"💰 REMAINING BALANCE: ₹{new_balance}\n"
-
-            f"🧾 ORDER ID: `{order_id}`\n"
-
-            "🔐 ACCESS READY\n"
-            "Your private group access is ready below.\n\n"
-
-            "⚠️ One-time use\n"
-            "⏱️ Valid for 24 hours\n\n"
-
-            f"{USER_BRAND}"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            success_text,
-            parse_mode="Markdown",
-            reply_markup=join_button(
-                invite_link
-            )
-        )
-
-        # =================================================
-        # ADMIN ORDER LOG
-        # =================================================
-
-        try:
-
-            bot.send_message(
-
-                ADMIN_ID,
-
-                "╔══════════════╗\n"
-                "       🛒 NEW ORDER\n"
-                "╚══════════════╝\n\n"
-
-                f"🧾 Order: {order_id}\n"
-                f"👤 User ID: {user_id}\n"
-                f"🛍 Product: {product_name}\n"
-                f"💵 Amount: ₹{price}\n"
-                f"📅 {date_text}\n"
-                f"📦 Status: DELIVERED\n\n"
-            )
-
-        except Exception:
-
-            pass
-
-    except Exception:
-
-        logging.exception(
-            "PURCHASE ERROR"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Purchase failed.\n\n"
-            "Please try again later."
-        )
-
-
-# =========================================================
-# /BUY
+# ADD FUNDS BUTTON
 # =========================================================
 
 @bot.message_handler(
-    commands=["buy"]
+    func=lambda message:
+        message.text == "💳 Add Funds"
 )
-def buy_command(message):
-
-    parts = message.text.split()
-
-    if len(parts) != 2:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Invalid product."
-        )
-
-        return
-
-    try:
-
-        product_id = int(
-            parts[1]
-        )
-
-    except ValueError:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Invalid product."
-        )
-
-        return
-
-    purchase_product(
-        message,
-        product_id
-    )
+def add_funds_button(message):
+    add_funds_start(message)
 
 
 # =========================================================
-# 📜 MY ORDERS
-# =========================================================
-
-def show_my_orders(
-    chat_id,
-    user_id
-):
-
-    try:
-
-        orders = get_orders()
-
-        user_orders = [
-
-            order
-
-            for order in orders
-
-            if order["user_id"] == user_id
-
-        ]
-
-        if not user_orders:
-
-            text = (
-                "╔═══════════════╗\n"
-                "         📜 MY ORDERS\n"
-                "╚═══════════════╝\n\n"
-
-                "📦 No orders found.\n\n"
-
-                "🛍 Visit Products to start shopping.\n\n"
-                
-            )
-
-            bot.send_message(
-                chat_id,
-                text,
-                reply_markup=main_menu(
-                    user_id
-                )
-            )
-
-            return
-
-        user_orders = user_orders[-10:]
-
-        lines = [
-
-            "╔═════════════╗",
-            "       📜 MY ORDERS",
-            "╚═════════════╝",
-            ""
-        ]
-
-        for order in reversed(
-            user_orders
-        ):
-
-            lines.append(
-                f"🧾 {order['order_id']}"
-            )
-
-            lines.append(
-                f"🛍 {order['product_name']}"
-            )
-
-            lines.append(
-                f"💵 ₹{order['price']}"
-            )
-
-            lines.append(
-                f"📅 {order['date']}"
-            )
-
-            lines.append(
-                f"📦 {order['status']}"
-            )
-
-            lines.append(
-                f"🔗 /access {order['order_id']}"
-            )
-
-            lines.append(
-                "────────────────────"
-            )
-
-        lines.append(
-            "🔄 Use /access ORDER_ID for a fresh access link."
-        )
-
-        lines.append("")
-
-        lines.append(
-            USER_BRAND
-        )
-
-        bot.send_message(
-            chat_id,
-            "\n".join(lines),
-            reply_markup=main_menu(
-                user_id
-            )
-        )
-
-    except Exception:
-
-        logging.exception(
-            "ORDERS ERROR"
-        )
-
-        bot.send_message(
-            chat_id,
-            "❌ Could not load orders."
-        )
-
-
-# =========================================================
-# /ACCESS
+# MY ORDERS BUTTON
 # =========================================================
 
 @bot.message_handler(
-    commands=["access"]
+    func=lambda message:
+        message.text == "📜 My Orders"
 )
-def access_command(message):
-
-    user_id = message.from_user.id
-
-    parts = message.text.split()
-
-    if len(parts) != 2:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Usage:\n\n"
-            "/access ORDER_ID"
-        )
-
+def orders_button(message):
+    if not require_join(message):
         return
 
-    order_id = parts[1].strip()
-
-    try:
-
-        orders = get_orders()
-
-        found_order = None
-
-        for order in orders:
-
-            if (
-                order["order_id"] == order_id
-                and
-                order["user_id"] == user_id
-            ):
-
-                found_order = order
-
-                break
-
-        if not found_order:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Order not found."
-            )
-
-            return
-
-        product_id = found_order[
-            "product_id"
-        ]
-
-        try:
-
-            invite_link = create_product_invite(
-                product_id
-            )
-
-        except Exception:
-
-            logging.exception(
-                "ACCESS LINK ERROR"
-            )
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Could not generate access link.\n\n"
-                "Please try again later."
-            )
-
-            return
-
-        text = (
-            "╔═════════════════╗\n"
-            "        🔐 ACCESS LINK\n"
-            "╚═════════════════╝\n\n"
-
-            f"🧾 Order: {order_id}\n"
-            f"🛍 Product: {found_order['product_name']}\n\n"
-
-            "🟢 Fresh access link generated.\n\n"
-
-            "⚠️ One-time use\n"
-            "⏱️ Valid for 24 hours\n\n"
-
-            "👇 Tap the button below to join.\n\n"
-            
-        )
-
-        bot.send_message(
-            message.chat.id,
-            text,
-            reply_markup=join_button(
-                invite_link
-            )
-        )
-
-    except Exception:
-
-        logging.exception(
-            "ACCESS ERROR"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Could not process access request."
-        )
+    show_orders(message)
 
 
 # =========================================================
-# 💳 ADD FUNDS
+# PROFILE BUTTON
 # =========================================================
 
-def start_add_funds(
-    chat_id,
-    user_id
-):
+@bot.message_handler(
+    func=lambda message:
+        message.text == "👤 Profile"
+)
+def profile_button(message):
+    if not require_join(message):
+        return
 
-    pending_funds[user_id] = {
-        "stage": "amount"
-    }
+    show_profile(message)
 
-    text = (
-        "╔════════════════╗\n"
-        "     💳 ADD FUNDS\n"
-        "╚════════════════╝\n\n"
 
-        "💰 Enter the amount you want to add.\n\n"
+# =========================================================
+# REFERRAL BUTTON
+# =========================================================
 
-        "Example: `100,` `200,` `500,` `1000`\n\n"
+@bot.message_handler(
+    func=lambda message:
+        message.text == "👥 Referral"
+)
+def referral_button(message):
+    if not require_join(message):
+        return
 
-        "🔐 Manual Payment\n"
-        f"Payment will be verified by {USER_BRAND}.\n\n"
+    show_referral(message)
+
+
+# =========================================================
+# ADMIN PANEL BUTTON
+# =========================================================
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "👨‍💼 Admin Panel"
+)
+def admin_panel_button(message):
+    show_admin_panel(message)
+
+
+# =========================================================
+# ADMIN ADD BALANCE BUTTON
+# =========================================================
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "💳 Add Balance"
+)
+def admin_add_balance_button(message):
+    admin_add_balance_start(message)
+
+
+# =========================================================
+# ADMIN STATISTICS BUTTON
+# =========================================================
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "📊 Statistics"
+)
+def statistics_button(message):
+    show_statistics(message)
+
+
+# =========================================================
+# MAIN MENU BUTTON
+# =========================================================
+
+@bot.message_handler(
+    func=lambda message:
+        message.text == "🏠 Main Menu"
+)
+def main_menu_button(message):
+    user_states.pop(
+        message.from_user.id,
+        None
     )
+
+    if not require_join(message):
+        return
 
     bot.send_message(
-        chat_id,
-        text,
-        parse_mode="Markdown",
-        reply_markup=back_menu()
-    )
-
-
-def send_payment_qr(
-    chat_id,
-    amount
-):
-
-    text = (
-        "╔═══════════════╗\n"
-        "     💳 PAYMENT\n"
-        "╚═══════════════╝\n\n"
-
-        f"💵 Amount: ₹{amount}\n\n"
-
-        "📲 Scan the QR below and complete payment.\n\n"
-
-        "After Payment:\n"
-        f"• 📸  Screenshot or UTR to {USER_BRAND}\n\n"
-
-        "⚠️ Balance will be added only after admin verification.\n\n"
-    )
-
-    try:
-
-        with open(
-            QR_FILE,
-            "rb"
-        ) as photo:
-
-            bot.send_photo(
-                chat_id,
-                photo,
-                caption=text,
-                reply_markup=back_menu()
-            )
-
-    except FileNotFoundError:
-
-        bot.send_message(
-            chat_id,
-            text
-            + "\n\n"
-            "❌ QR image is missing.\n"
-            "Please contact admin."
+        message.chat.id,
+        "🏠 <b>Main Menu</b>",
+        parse_mode="HTML",
+        reply_markup=main_menu(
+            message.from_user.id
         )
+    )
 
 
 # =========================================================
-# 👑 ADMIN /ADD
+# STATE ROUTER
+# =========================================================
+#
+# Ye handler text messages ke states ko handle karta hai.
+# Isko product/button handlers ke baad rakha gaya hai.
 # =========================================================
 
 @bot.message_handler(
-    commands=["add"]
+    content_types=["text"]
 )
-def add_balance_command(message):
-
-    if message.from_user.id != ADMIN_ID:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Admin only."
-        )
-
-        return
-
-    parts = message.text.split()
-
-    if len(parts) != 3:
-
-        bot.send_message(
-            message.chat.id,
-
-            "❌ Correct format:\n\n"
-            "/add USER_ID AMOUNT\n\n"
-
-            "Example:\n"
-            "/add 123456789 500"
-        )
-
-        return
-
-    try:
-
-        user_id = int(
-            parts[1]
-        )
-
-        amount = int(
-            parts[2]
-        )
-
-    except ValueError:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ User ID and amount must be numbers."
-        )
-
-        return
-
-    if user_id <= 0:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Invalid User ID."
-        )
-
-        return
-
-    if amount <= 0:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Amount must be greater than ₹0."
-        )
-
-        return
-
-    if amount > 1000000:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Maximum amount is ₹10,00,000."
-        )
-
-        return
-
-    try:
-
-        with balance_lock:
-
-            balances = get_balances()
-
-            old_balance = balances.get(
-                user_id,
-                0
-            )
-
-            new_balance = (
-                old_balance
-                + amount
-            )
-
-            balances[user_id] = (
-                new_balance
-            )
-
-            save_balances(
-                balances
-            )
-
-        bot.send_message(
-            message.chat.id,
-
-            "╔══════════════════╗\n"
-            "    ✅ BALANCE ADDED\n"
-            "╚══════════════════╝\n\n"
-
-            f"👤 User ID: {user_id}\n"
-            f"💵 Added: ₹{amount}\n"
-            f"💰 New Balance: ₹{new_balance}\n\n"
-            
-        )
-
-        # Notify user
-        try:
-
-            bot.send_message(
-                user_id,
-
-               f"╔══════════════════╗\n"
-                "   💰 BALANCE UPDATE\n"
-                "╚══════════════════╝\n\n"
-
-                f"✅ Added: ₹{amount}\n"
-                f"💰 Current Balance: ₹{new_balance}\n\n"
-
-                "🛍 You can continue shopping now.\n\n"
-                
-
-                reply_markup=main_menu(
-                    user_id
-                )
-            )
-
-        except Exception:
-
-            logging.info(
-                "Could not notify user %s",
-                user_id
-            )
-
-    except Exception:
-
-        logging.exception(
-            "ADD BALANCE ERROR"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "❌ Balance update failed."
-        )
-
-
-# =========================================================
-# 📊 STATISTICS
-# =========================================================
-
-def show_statistics(
-    chat_id
-):
-
-    try:
-
-        balances = get_balances()
-
-        orders = get_orders()
-
-        total_users = len(
-            balances
-        )
-
-        total_orders = len(
-            orders
-        )
-
-        total_sales = sum(
-            order["price"]
-            for order in orders
-        )
-
-        total_balance = sum(
-            balances.values()
-        )
-
-        product_sales = {
-            1: 0,
-            2: 0,
-            3: 0
-        }
-
-        for order in orders:
-
-            product_id = order[
-                "product_id"
-            ]
-
-            if product_id in product_sales:
-
-                product_sales[
-                    product_id
-                ] += 1
-
-        text = (
-            "╔═════════════╗\n"
-            "     📊 STATISTICS\n"
-            "╚═════════════╝\n\n"
-
-            f"👥 Total Users: {total_users}\n"
-            f"📦 Total Orders: {total_orders}\n"
-            f"💰 Total Sales: ₹{total_sales}\n"
-            f"💳 User Balances: ₹{total_balance}\n\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-
-            f"① HACK A: {product_sales[1]} sales\n"
-            f"② HACK B: {product_sales[2]} sales\n"
-            f"③ HACK C: {product_sales[3]} sales\n\n"
-
-        )
-
-        bot.send_message(
-            chat_id,
-            text,
-            reply_markup=admin_menu()
-        )
-
-    except Exception:
-
-        logging.exception(
-            "STATISTICS ERROR"
-        )
-
-        bot.send_message(
-            chat_id,
-            "❌ Could not load statistics."
-        )
-
-
-# =========================================================
-# 👑 ADMIN PANEL
-# =========================================================
-
-def show_admin_panel(
-    chat_id
-):
-
-    text = (
-        "╔═══════════════╗\n"
-        "      👑 ADMIN PANEL\n"
-        "╚═══════════════╝\n\n"
-
-        "🔐 Owner Controls\n\n"
-
-        "💳 Add Balance\n"
-        "Manually credit user balance.\n\n"
-
-        "📊 Statistics\n"
-        "View users, orders & sales.\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-    )
-
-    bot.send_message(
-        chat_id,
-        text,
-        reply_markup=admin_menu()
-    )
-
-
-# =========================================================
-# 💳 FUNDS TEXT HANDLER
-# =========================================================
-
-def handle_funds_text(
-    message
-):
-
+def text_state_router(message):
     user_id = message.from_user.id
 
-    state = pending_funds.get(
-        user_id
+    text = message.text.strip()
+
+    # -----------------------------------------------------
+    # Admin state
+    # -----------------------------------------------------
+
+    if is_admin(user_id):
+        if handle_admin_add_state(message):
+            return
+
+    # -----------------------------------------------------
+    # Add funds amount
+    # -----------------------------------------------------
+
+    if handle_add_funds_amount(message):
+        return
+
+    # -----------------------------------------------------
+    # Add funds proof
+    # -----------------------------------------------------
+
+    if handle_add_funds_proof(message):
+        return
+
+    # -----------------------------------------------------
+    # Coupon
+    # -----------------------------------------------------
+
+    state = user_states.get(user_id)
+
+    if state and state.get("stage") == "coupon":
+        if handle_coupon_state(message):
+            return
+
+    # -----------------------------------------------------
+    # Selected coupon + product purchase
+    # -----------------------------------------------------
+
+    if text == "🛒 Buy Product 1":
+        purchase_from_button(
+            message,
+            1
+        )
+        return
+
+    if text == "🛒 Buy Product 2":
+        purchase_from_button(
+            message,
+            2
+        )
+        return
+
+    if text == "🛒 Buy Product 3":
+        purchase_from_button(
+            message,
+            3
+        )
+        return
+
+    # -----------------------------------------------------
+    # Unknown text
+    # -----------------------------------------------------
+
+    if text.startswith("/"):
+        return
+
+    bot.send_message(
+        message.chat.id,
+        "👇 Menu se option select karo.",
+        reply_markup=main_menu(user_id)
     )
-
-    if not state:
-
-        return False
-
-    # =====================================================
-    # AMOUNT
-    # =====================================================
-
-    if state["stage"] == "amount":
-
-        raw_amount = message.text.strip()
-
-        try:
-
-            amount = int(
-                raw_amount
-            )
-
-        except ValueError:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Please enter a valid amount.\n\n"
-                "Example: 500"
-            )
-
-            return True
-
-        if amount <= 0:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Amount must be greater than ₹0."
-            )
-
-            return True
-
-        if amount > 1000000:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Maximum amount is ₹10,00,000."
-            )
-
-            return True
-
-        pending_funds[user_id] = {
-
-            "stage": "proof",
-
-            "amount": amount
-
-        }
-
-        send_payment_qr(
-            message.chat.id,
-            amount
-        )
-
-        return True
-
-    # =====================================================
-    # UTR / TRANSACTION ID
-    # =====================================================
-
-    if state["stage"] == "proof":
-
-        amount = state[
-            "amount"
-        ]
-
-        utr = message.text.strip()
-
-        if len(utr) < 3:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Please send a valid UTR / Transaction ID."
-            )
-
-            return True
-
-        pending_funds.pop(
-            user_id,
-            None
-        )
-
-        try:
-
-            bot.send_message(
-
-                ADMIN_ID,
-
-                "╔═══════════════════╗\n"
-                "     💳 PAYMENT REQUEST\n"
-                "╚═══════════════════╝\n\n"
-
-                f"👤 User ID: {user_id}\n"
-                f"💵 Amount: ₹{amount}\n"
-                f"🔢 UTR: {utr}\n\n"
-
-                "🔍 Verify the payment manually.\n\n"
-
-                f"✅ Approve:\n"
-                f"/add {user_id} {amount}\n\n"
-                
-            )
-
-            bot.send_message(
-
-                message.chat.id,
-
-                "╔═════════════╗\n"
-                "       ✅ SUBMITTED\n"
-                "╚═════════════╝\n\n"
-
-                f"💵 Amount: ₹{amount}\n"
-                f"🔢 UTR: {utr}\n\n"
-
-                "📨 Payment proof sent to admin.\n"
-                "💰 Balance will be added after verification.\n\n"
-
-                f"{USER_BRAND}",
-
-                reply_markup=main_menu(
-                    user_id
-                )
-            )
-
-        except Exception:
-
-            logging.exception(
-                "UTR SEND ERROR"
-            )
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Could not submit payment proof."
-            )
-
-        return True
-
-    return False
 
 
 # =========================================================
-# 📸 PAYMENT SCREENSHOT
+# PHOTO PROOF HANDLER
 # =========================================================
 
 @bot.message_handler(
     content_types=["photo"]
 )
-def payment_photo(
-    message
-):
-
+def photo_handler(message):
     user_id = message.from_user.id
 
-    state = pending_funds.get(
-        user_id
-    )
+    state = user_states.get(user_id)
 
     if not state:
+        bot.send_message(
+            message.chat.id,
+            "📸 Payment proof bhejne ke liye "
+            "pehle 💳 Add Funds select karo."
+        )
         return
 
-    if state["stage"] != "proof":
+    if state.get("stage") != "proof":
+        bot.send_message(
+            message.chat.id,
+            "❌ Abhi photo ki zarurat nahi hai."
+        )
         return
 
-    amount = state[
-        "amount"
-    ]
-
-    pending_funds.pop(
-        user_id,
-        None
+    amount = safe_int(
+        state.get("amount")
     )
 
     try:
-
-        caption = (
-
-            "╔════════════════════╗\n"
-            "    💳 PAYMENT SCREENSHOT\n"
-            "╚════════════════════╝\n\n"
-
-            f"👤 User ID: {user_id}\n"
-            f"💵 Amount: ₹{amount}\n\n"
-
-            "🔍 Verify payment manually.\n\n"
-
-            f"✅ Approve:\n"
-            f"/add {user_id} {amount}\n\n"
-            
+        bot.send_message(
+            ADMIN_ID,
+            "💳 <b>NEW FUNDING REQUEST</b>\n\n"
+            f"👤 User ID: <code>{user_id}</code>\n"
+            f"💰 Amount: ₹{amount}\n"
+            f"📅 Time: {now_str()}\n\n"
+            f"Verify karke:\n"
+            f"<code>/add {user_id} {amount}</code>",
+            parse_mode="HTML"
         )
 
-        bot.send_photo(
-
+        bot.forward_message(
             ADMIN_ID,
-
-            message.photo[-1].file_id,
-
-            caption=caption
+            message.chat.id,
+            message.message_id
         )
 
         bot.send_message(
-
             message.chat.id,
+            "✅ Screenshot received.\n\n"
+            f"💰 Amount: ₹{amount}\n"
+            "👨‍💼 Admin verification pending hai."
+        )
 
-            "╔═════════════╗\n"
-            "       ✅ SUBMITTED\n"
-            "╚═════════════╝\n\n"
-
-            f"💵 Amount: ₹{amount}\n\n"
-
-            "📸 Screenshot sent to admin.\n"
-            "💰 Balance will be added after verification.\n\n"
-
-            f"{USER_BRAND}",
-
-            reply_markup=main_menu(
-                user_id
-            )
+        user_states.pop(
+            user_id,
+            None
         )
 
     except Exception:
-
         logging.exception(
             "PHOTO PROOF ERROR"
         )
 
         bot.send_message(
             message.chat.id,
-            "❌ Could not submit screenshot."
+            "⚠️ Screenshot forward nahi ho saka."
         )
 
 
 # =========================================================
-# 👤 PROFILE
+# /BALANCE
 # =========================================================
 
-def show_profile(
-    chat_id,
-    user_id,
-    user
-):
-
-    try:
-
-        balances = get_balances()
-
-        balance = balances.get(
-            user_id,
-            0
-        )
-
-        orders = get_orders()
-
-        total_orders = len([
-
-            order
-
-            for order in orders
-
-            if order["user_id"] == user_id
-
-        ])
-
-        if user.username:
-
-            username = (
-                "@"
-                + user.username
-            )
-
-        else:
-
-            username = "Not set"
-
-        first_name = (
-            user.first_name
-            or "User"
-        )
-
-        text = (
-            "╔═══════════╗\n"
-            "      👤 PROFILE\n"
-            "╚═══════════╝\n\n"
-
-            f"👋 Name: {first_name}\n"
-            f"🔗 Username: {username}\n"
-            f"🆔 User ID: `{user_id}`\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 Balance: ₹{balance}\n"
-            f"📦 Total Orders: {total_orders}\n\n"
-            "━━━━━━━━━━━━━━━━━━━\n"
-            
-            f"{USER_BRAND}"
-        )
-
-        bot.send_message(
-
-            chat_id,
-
-            text,
-
-            parse_mode="Markdown",
-
-            reply_markup=main_menu(
-                user_id
-            )
-        )
-
-    except Exception:
-
-        logging.exception(
-            "PROFILE ERROR"
-        )
-
-        bot.send_message(
-            chat_id,
-            "❌ Could not load profile."
-        )
-
-
-# =========================================================
-# 💬 TEXT HANDLER
-# =========================================================
-
-@bot.message_handler(
-    content_types=["text"]
-)
-def text_handler(
-    message
-):
-
-    user_id = message.from_user.id
-
-    text = message.text.strip()
-
-    # =====================================================
-    # FUNDS STATE FIRST
-    # =====================================================
-
-    if user_id in pending_funds:
-
-        if handle_funds_text(
-            message
-        ):
-
-            return
-
-    # =====================================================
-    # PRODUCTS
-    # =====================================================
-
-    if text == "🛍 Products":
-
-        pending_funds.pop(
-            user_id,
-            None
-        )
-
-        show_products(
-            message.chat.id,
-            user_id
-        )
-
+@bot.message_handler(commands=["balance"])
+def balance_command(message):
+    if not require_join(message):
         return
 
-    # =====================================================
-    # BALANCE
-    # =====================================================
-
-    if text == "💰 Balance":
-
-        pending_funds.pop(
-            user_id,
-            None
-        )
-
-        balance_command(
-            message
-        )
-
-        return
-
-    # =====================================================
-    # ADD FUNDS
-    # =====================================================
-
-    if text == "💳 Add Funds":
-
-        start_add_funds(
-            message.chat.id,
-            user_id
-        )
-
-        return
-
-    # =====================================================
-    # MY ORDERS
-    # =====================================================
-
-    if text == "📜 My Orders":
-
-        pending_funds.pop(
-            user_id,
-            None
-        )
-
-        show_my_orders(
-            message.chat.id,
-            user_id
-        )
-
-        return
-
-    # =====================================================
-    # PROFILE
-    # =====================================================
-
-    if text == "👤 Profile":
-
-        pending_funds.pop(
-            user_id,
-            None
-        )
-
-        show_profile(
-            message.chat.id,
-            user_id,
-            message.from_user
-        )
-
-        return
-
-    # =====================================================
-    # ADMIN PANEL
-    # =====================================================
-
-    if text == "👨‍💼 Admin Panel":
-
-        if user_id != ADMIN_ID:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Admin only."
-            )
-
-            return
-
-        pending_funds.pop(
-            user_id,
-            None
-        )
-
-        show_admin_panel(
-            message.chat.id
-        )
-
-        return
-
-    # =====================================================
-    # ADMIN ADD BALANCE
-    # =====================================================
-
-    if text == "💳 Add Balance":
-
-        if user_id != ADMIN_ID:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Admin only."
-            )
-
-            return
-
-        bot.send_message(
-
-            message.chat.id,
-
-            "╔═══════════════╗\n"
-            "     💳 ADD BALANCE\n"
-            "╚═══════════════╝\n\n"
-
-            "Use:\n"
-            "/add USER_ID AMOUNT\n\n"
-
-            "Example:\n"
-            "/add 123456789 500\n\n"
-
-            reply_markup=admin_menu()
-        )
-
-        return
-
-    # =====================================================
-    # STATISTICS
-    # =====================================================
-
-    if text == "📊 Statistics":
-
-        if user_id != ADMIN_ID:
-
-            bot.send_message(
-                message.chat.id,
-                "❌ Admin only."
-            )
-
-            return
-
-        show_statistics(
-            message.chat.id
-        )
-
-        return
-
-    # =====================================================
-    # MAIN MENU
-    # =====================================================
-
-    if text == "🏠 Main Menu":
-
-        pending_funds.pop(
-            user_id,
-            None
-        )
-
-        send_welcome(
-            message.chat.id,
-            user_id
-        )
-
-        return
-
-    # =====================================================
-    # PRODUCT 1
-    # =====================================================
-
-    if text == "🛒 OBB & FILES":
-
-        purchase_product(
-            message,
-            1
-        )
-
-        return
-
-    # =====================================================
-    # PRODUCT 2
-    # =====================================================
-
-    if text == "🛒 SAFE HACK (1-month)":
-
-        purchase_product(
-            message,
-            2
-        )
-
-        return
-
-    # =====================================================
-    # PRODUCT 3
-    # =====================================================
-
-    if text == "🛒 SAFE HACK (full-season)":
-
-        purchase_product(
-            message,
-            3
-        )
-
-        return
-
-    # =====================================================
-    # UNKNOWN MESSAGE
-    # =====================================================
-
-    bot.send_message(
-
+    show_balance(
         message.chat.id,
-
-        "✨ Please use the menu below.",
-
-        reply_markup=main_menu(
-            user_id
-        )
+        message.from_user.id
     )
 
 
 # =========================================================
-# 🌐 HOME
+# /PRODUCTS
 # =========================================================
 
-@app.route(
-    "/",
-    methods=["GET"]
-)
+@bot.message_handler(commands=["products"])
+def products_command(message):
+    if not require_join(message):
+        return
+
+    send_products(
+        message.chat.id
+    )
+
+
+# =========================================================
+# /PING
+# =========================================================
+
+@bot.message_handler(commands=["ping"])
+def ping_command(message):
+    bot.send_message(
+        message.chat.id,
+        "🏓 Pong!"
+    )
+
+
+# =========================================================
+# WEBHOOK
+# =========================================================
+
+@app.route("/")
 def home():
-
-    return (
-        "⚡ SpeedFistt Bot is running.",
-        200
-    )
+    return "Bot is running", 200
 
 
-# =========================================================
-# 🌐 TELEGRAM WEBHOOK
-# =========================================================
+@app.route("/health")
+def health():
+    return "OK", 200
 
-@app.route(
-    "/webhook",
-    methods=["POST"]
-)
+
+@app.route("/webhook", methods=["POST"])
 def webhook():
-
     try:
-
         data = request.get_data().decode(
             "utf-8"
         )
@@ -2342,7 +2742,6 @@ def webhook():
         return "OK", 200
 
     except Exception:
-
         logging.exception(
             "WEBHOOK ERROR"
         )
@@ -2351,57 +2750,48 @@ def webhook():
 
 
 # =========================================================
-# 🔗 SET WEBHOOK
+# SET WEBHOOK
 # =========================================================
 
 def setup_webhook():
-
-    webhook_url = (
-        f"{WEBHOOK_URL}/webhook"
-    )
-
     try:
+        webhook_url = (
+            f"{WEBHOOK_URL.rstrip('/')}/webhook"
+        )
 
         bot.remove_webhook()
 
+        time.sleep(1)
+
+        result = bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=[
+                "message",
+                "channel_post"
+            ]
+        )
+
+        logging.info(
+            "WEBHOOK SET: %s",
+            result
+        )
+
     except Exception:
-
-        pass
-
-    bot.set_webhook(
-
-        url=webhook_url,
-
-        allowed_updates=[
-            "message",
-            "channel_post"
-        ]
-    )
-
-    logging.info(
-        "WEBHOOK SET: %s",
-        webhook_url
-    )
+        logging.exception(
+            "WEBHOOK SETUP ERROR"
+        )
 
 
 # =========================================================
-# START
+# START APP
 # =========================================================
 
 setup_webhook()
 
 
-# =========================================================
-# RUN
-# =========================================================
-
 if __name__ == "__main__":
-
     port = int(
-        os.getenv(
-            "PORT",
-            "10000"
-        )
+        os.getenv("PORT", "10000")
     )
 
     app.run(
