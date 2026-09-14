@@ -32,13 +32,13 @@ ORDERS_MESSAGE_ID = 8
 QR_FILE = "qr.jpg"
 
 # Maximum orders stored in Telegram database
-MAX_ORDERS = 40
+MAX_ORDERS = 1440
 
 # =========================================================
 # BRANDING
 # =========================================================
 
-USER_BRAND = "⚡ This bot is made by @SpeedFistt"
+USER_BRAND = "⚡ Admin: @SpeedFistt"
 OWNER_BRAND = "👑 Owner: @SpeedFistt"
 
 
@@ -61,7 +61,7 @@ PRODUCTS = {
     },
 
     3: {
-        "name": "SAFE HACK (full season)",
+        "name": "SAFE HACK (full-season)",
         "price": 799,
         "group_id": -1004203063772
     }
@@ -196,12 +196,12 @@ def product_menu():
     )
 
     keyboard.row(
-        "🛒 Buy Product 1",
-        "🛒 Buy Product 2"
+        "🛒 OBB & FILES",
+        "🛒 SAFE HACK (1-month)"
     )
 
     keyboard.row(
-        "🛒 Buy Product 3"
+        "🛒 SAFE HACK (full-season)"
     )
 
     keyboard.row(
@@ -238,7 +238,7 @@ def join_button(invite_link):
 
     keyboard.add(
         types.InlineKeyboardButton(
-            "🟢 JOIN GROUP 🟢",
+            "🟢 JOIN PAID GROUP 🟢",
             url=invite_link
         )
     )
@@ -550,11 +550,11 @@ def send_welcome(
 ):
 
     text = (
-        "╔════════════════════════╗\n"
+        "╔═══════════════════╗\n"
         "      ⚡ BGMI HACK STORE\n"
-        "╚════════════════════════╝\n\n"
+        "╚═══════════════════╝\n\n"
 
-        "👋 Welcome to the premium store!\n\n"
+        "👋 Welcome to the store!\n\n"
 
         "🛍 Digital Products\n"
         "⚡ Fast & Secure Delivery\n"
@@ -562,11 +562,10 @@ def send_welcome(
         "📜 Order History\n"
         "🔐 Private Group Access\n\n"
 
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{USER_BRAND}"
 
         "👇 Choose an option below\n\n"
 
-        f"{USER_BRAND}"
     )
 
     bot.send_message(
@@ -639,20 +638,14 @@ def balance_command(message):
         )
 
         text = (
-            "╔════════════════════════╗\n"
-            "          💰 BALANCE\n"
-            "╚════════════════════════╝\n\n"
-
-            "💵 Available Balance\n\n"
-
-            f"      ₹{balance}\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "╔════════════╗\n"
+            "       💰 BALANCE\n"
+            "╚════════════╝\n\n"
+            f"💵 Available Balance:  ₹{balance}\n\n"
 
             "💳 Need more balance?\n"
             "Use 💳 Add Funds.\n\n"
-
-            f"{USER_BRAND}"
+            
         )
 
         bot.send_message(
@@ -685,9 +678,9 @@ def show_products(
 ):
 
     text = (
-        "╔════════════════════════╗\n"
+        "╔═══════════════════╗\n"
         "        🛍 BGMI HACK STORE\n"
-        "╚════════════════════════╝\n\n"
+        "╚═══════════════════╝\n\n"
 
         "✨ PREMIUM DIGITAL PRODUCTS\n\n"
 
@@ -703,15 +696,16 @@ def show_products(
         "   💵 Price: ₹799\n"
         "   ⚡ Instant Access\n\n"
 
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
 
         "🔐 Private Group Access\n"
         "🟢 One-Time Invite\n"
         "⏱️ 24 Hours Validity\n\n"
+        
+        f"{USER_BRAND}"
 
         "👇 Select your product below.\n\n"
-
-        f"{USER_BRAND}"
+        
     )
 
     bot.send_message(
@@ -856,9 +850,9 @@ def purchase_product(
                 )
 
                 text = (
-                    "╔════════════════════════╗\n"
+                    "╔════════════════╗\n"
                     "       💳 LOW BALANCE\n"
-                    "╚════════════════════════╝\n\n"
+                    "╚════════════════╝\n\n"
 
                     f"🛍 {product_name}\n"
                     f"💵 Price: ₹{price}\n"
@@ -866,8 +860,7 @@ def purchase_product(
                     f"📉 Need: ₹{required} more\n\n"
 
                     "Please add funds first.\n\n"
-
-                    f"{USER_BRAND}"
+                    
                 )
 
                 bot.send_message(
@@ -1010,25 +1003,17 @@ def purchase_product(
         # =================================================
 
         success_text = (
-            "╔════════════════════════╗\n"
+            "╔══════════════════╗\n"
             "       ✅ ORDER COMPLETE\n"
-            "╚════════════════════════╝\n\n"
+            "╚══════════════════╝\n\n"
 
             "🎉 Purchase successful!\n\n"
 
-            "🛍 PRODUCT\n"
-            f"{product_name}\n\n"
+            f"🛍 PRODUCT: {product_name}\n"
+            f"💵 PAID: ₹{price}\n"
+            f"💰 REMAINING BALANCE: ₹{new_balance}\n"
 
-            "💵 PAID\n"
-            f"₹{price}\n\n"
-
-            "💰 REMAINING BALANCE\n"
-            f"₹{new_balance}\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-
-            "🧾 ORDER ID\n"
-            f"`{order_id}`\n\n"
+            f"🧾 ORDER ID: `{order_id}`\n"
 
             "🔐 ACCESS READY\n"
             "Your private group access is ready below.\n\n"
@@ -1058,9 +1043,9 @@ def purchase_product(
 
                 ADMIN_ID,
 
-                "╔════════════════════════╗\n"
-                "         🛒 NEW ORDER\n"
-                "╚════════════════════════╝\n\n"
+                "╔══════════════╗\n"
+                "       🛒 NEW ORDER\n"
+                "╚══════════════╝\n\n"
 
                 f"🧾 Order: {order_id}\n"
                 f"👤 User ID: {user_id}\n"
@@ -1068,8 +1053,6 @@ def purchase_product(
                 f"💵 Amount: ₹{price}\n"
                 f"📅 {date_text}\n"
                 f"📦 Status: DELIVERED\n\n"
-
-                f"{OWNER_BRAND}"
             )
 
         except Exception:
@@ -1156,15 +1139,14 @@ def show_my_orders(
         if not user_orders:
 
             text = (
-                "╔════════════════════════╗\n"
+                "╔═══════════════╗\n"
                 "         📜 MY ORDERS\n"
-                "╚════════════════════════╝\n\n"
+                "╚═══════════════╝\n\n"
 
                 "📦 No orders found.\n\n"
 
                 "🛍 Visit Products to start shopping.\n\n"
-
-                f"{USER_BRAND}"
+                
             )
 
             bot.send_message(
@@ -1181,9 +1163,9 @@ def show_my_orders(
 
         lines = [
 
-            "╔════════════════════════╗",
-            "         📜 MY ORDERS",
-            "╚════════════════════════╝",
+            "╔═════════════╗",
+            "       📜 MY ORDERS",
+            "╚═════════════╝",
             ""
         ]
 
@@ -1326,9 +1308,9 @@ def access_command(message):
             return
 
         text = (
-            "╔════════════════════════╗\n"
+            "╔═════════════════╗\n"
             "        🔐 ACCESS LINK\n"
-            "╚════════════════════════╝\n\n"
+            "╚═════════════════╝\n\n"
 
             f"🧾 Order: {order_id}\n"
             f"🛍 Product: {found_order['product_name']}\n\n"
@@ -1339,8 +1321,7 @@ def access_command(message):
             "⏱️ Valid for 24 hours\n\n"
 
             "👇 Tap the button below to join.\n\n"
-
-            f"{USER_BRAND}"
+            
         )
 
         bot.send_message(
@@ -1377,21 +1358,16 @@ def start_add_funds(
     }
 
     text = (
-        "╔════════════════════════╗\n"
+        "╔════════════════╗\n"
         "         💳 ADD FUNDS\n"
-        "╚════════════════════════╝\n\n"
+        "╚════════════════╝\n\n"
 
         "💰 Enter the amount you want to add.\n\n"
 
-        "Example:\n"
-        "`500`\n\n"
-
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Example: `100,` `200,` `500,` `1000`\n\n"
 
         "🔐 Manual Payment\n"
-        "Payment will be verified by admin.\n\n"
-
-        f"{USER_BRAND}"
+        f"Payment will be verified by {USER_BRAND}.\n\n"
     )
 
     bot.send_message(
@@ -1408,23 +1384,18 @@ def send_payment_qr(
 ):
 
     text = (
-        "╔════════════════════════╗\n"
+        "╔═══════════════╗\n"
         "          💳 PAYMENT\n"
-        "╚════════════════════════╝\n\n"
+        "╚═══════════════╝\n\n"
 
         f"💵 Amount: ₹{amount}\n\n"
 
         "📲 Scan the QR below and complete payment.\n\n"
 
-        "After payment send:\n\n"
-
-        "• 🔢 UTR / Transaction ID\n"
-        "OR\n"
-        "• 📸 Payment Screenshot\n\n"
+        "After Payment:\n"
+        f"• 📸  Screenshot or UTR to {USER_BRAND}\n\n"
 
         "⚠️ Balance will be added only after admin verification.\n\n"
-
-        f"{USER_BRAND}"
     )
 
     try:
@@ -1559,15 +1530,14 @@ def add_balance_command(message):
         bot.send_message(
             message.chat.id,
 
-            "╔════════════════════════╗\n"
+            "╔══════════════════╗\n"
             "       ✅ BALANCE ADDED\n"
-            "╚════════════════════════╝\n\n"
+            "╚══════════════════╝\n\n"
 
             f"👤 User ID: {user_id}\n"
             f"💵 Added: ₹{amount}\n"
             f"💰 New Balance: ₹{new_balance}\n\n"
-
-            f"{OWNER_BRAND}"
+            
         )
 
         # Notify user
@@ -1576,16 +1546,15 @@ def add_balance_command(message):
             bot.send_message(
                 user_id,
 
-                "╔════════════════════════╗\n"
+                "╔══════════════════╗\n"
                 "       💰 BALANCE UPDATE\n"
-                "╚════════════════════════╝\n\n"
+                "╚══════════════════╝\n\n"
 
                 f"✅ Added: ₹{amount}\n"
                 f"💰 Current Balance: ₹{new_balance}\n\n"
 
                 "🛍 You can continue shopping now.\n\n"
-
-                f"{USER_BRAND}",
+                
 
                 reply_markup=main_menu(
                     user_id
@@ -1661,22 +1630,20 @@ def show_statistics(
                 ] += 1
 
         text = (
-            "╔════════════════════════╗\n"
-            "        📊 STATISTICS\n"
-            "╚════════════════════════╝\n\n"
+            "╔═════════════╗\n"
+            "     📊 STATISTICS\n"
+            "╚═════════════╝\n\n"
 
             f"👥 Total Users: {total_users}\n"
             f"📦 Total Orders: {total_orders}\n"
             f"💰 Total Sales: ₹{total_sales}\n"
             f"💳 User Balances: ₹{total_balance}\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
 
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"① HACK A: {product_sales[1]} sales\n"
+            f"② HACK B: {product_sales[2]} sales\n"
+            f"③ HACK C: {product_sales[3]} sales\n\n"
 
-            f"① Product A: {product_sales[1]} sales\n"
-            f"② Product B: {product_sales[2]} sales\n"
-            f"③ Product C: {product_sales[3]} sales\n\n"
-
-            f"{OWNER_BRAND}"
         )
 
         bot.send_message(
@@ -1706,9 +1673,9 @@ def show_admin_panel(
 ):
 
     text = (
-        "╔════════════════════════╗\n"
-        "         👑 ADMIN PANEL\n"
-        "╚════════════════════════╝\n\n"
+        "╔═══════════════╗\n"
+        "      👑 ADMIN PANEL\n"
+        "╚═══════════════╝\n\n"
 
         "🔐 Owner Controls\n\n"
 
@@ -1717,10 +1684,7 @@ def show_admin_panel(
 
         "📊 Statistics\n"
         "View users, orders & sales.\n\n"
-
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-
-        f"{OWNER_BRAND}"
+        "━━━━━━━━━━━━━━━━━━━━\n"
     )
 
     bot.send_message(
@@ -1837,9 +1801,9 @@ def handle_funds_text(
 
                 ADMIN_ID,
 
-                "╔════════════════════════╗\n"
+                "╔═══════════════════╗\n"
                 "     💳 PAYMENT REQUEST\n"
-                "╚════════════════════════╝\n\n"
+                "╚═══════════════════╝\n\n"
 
                 f"👤 User ID: {user_id}\n"
                 f"💵 Amount: ₹{amount}\n"
@@ -1849,17 +1813,16 @@ def handle_funds_text(
 
                 f"✅ Approve:\n"
                 f"/add {user_id} {amount}\n\n"
-
-                f"{OWNER_BRAND}"
+                
             )
 
             bot.send_message(
 
                 message.chat.id,
 
-                "╔════════════════════════╗\n"
+                "╔═════════════╗\n"
                 "       ✅ SUBMITTED\n"
-                "╚════════════════════════╝\n\n"
+                "╚═════════════╝\n\n"
 
                 f"💵 Amount: ₹{amount}\n"
                 f"🔢 UTR: {utr}\n\n"
@@ -1926,9 +1889,9 @@ def payment_photo(
 
         caption = (
 
-            "╔════════════════════════╗\n"
+            "╔════════════════════╗\n"
             "    💳 PAYMENT SCREENSHOT\n"
-            "╚════════════════════════╝\n\n"
+            "╚════════════════════╝\n\n"
 
             f"👤 User ID: {user_id}\n"
             f"💵 Amount: ₹{amount}\n\n"
@@ -1937,8 +1900,7 @@ def payment_photo(
 
             f"✅ Approve:\n"
             f"/add {user_id} {amount}\n\n"
-
-            f"{OWNER_BRAND}"
+            
         )
 
         bot.send_photo(
@@ -1954,9 +1916,9 @@ def payment_photo(
 
             message.chat.id,
 
-            "╔════════════════════════╗\n"
+            "╔═════════════╗\n"
             "       ✅ SUBMITTED\n"
-            "╚════════════════════════╝\n\n"
+            "╚═════════════╝\n\n"
 
             f"💵 Amount: ₹{amount}\n\n"
 
@@ -2030,21 +1992,19 @@ def show_profile(
         )
 
         text = (
-            "╔════════════════════════╗\n"
-            "          👤 PROFILE\n"
-            "╚════════════════════════╝\n\n"
+            "╔═══════════╗\n"
+            "      👤 PROFILE\n"
+            "╚═══════════╝\n\n"
 
             f"👋 Name: {first_name}\n"
             f"🔗 Username: {username}\n"
             f"🆔 User ID: `{user_id}`\n\n"
 
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-
+            "━━━━━━━━━━━━━━━━━━━\n"
             f"💰 Balance: ₹{balance}\n"
             f"📦 Total Orders: {total_orders}\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-
+            "━━━━━━━━━━━━━━━━━━━\n"
+            
             f"{USER_BRAND}"
         )
 
@@ -2230,17 +2190,15 @@ def text_handler(
 
             message.chat.id,
 
-            "╔════════════════════════╗\n"
-            "       💳 ADD BALANCE\n"
-            "╚════════════════════════╝\n\n"
+            "╔═══════════════╗\n"
+            "     💳 ADD BALANCE\n"
+            "╚═══════════════╝\n\n"
 
-            "Use:\n\n"
+            "Use:\n"
             "/add USER_ID AMOUNT\n\n"
 
             "Example:\n"
             "/add 123456789 500\n\n"
-
-            f"{OWNER_BRAND}",
 
             reply_markup=admin_menu()
         )
@@ -2290,7 +2248,7 @@ def text_handler(
     # PRODUCT 1
     # =====================================================
 
-    if text == "🛒 Buy Product 1":
+    if text == "🛒 OBB & FILES":
 
         purchase_product(
             message,
@@ -2303,7 +2261,7 @@ def text_handler(
     # PRODUCT 2
     # =====================================================
 
-    if text == "🛒 Buy Product 2":
+    if text == "🛒 SAFE HACK (1-month)":
 
         purchase_product(
             message,
@@ -2316,7 +2274,7 @@ def text_handler(
     # PRODUCT 3
     # =====================================================
 
-    if text == "🛒 Buy Product 3":
+    if text == "🛒 SAFE HACK (full-season)":
 
         purchase_product(
             message,
