@@ -647,6 +647,7 @@ def start_command(message):
 def check_join_callback(call):
     user_id = call.from_user.id
 
+    # Check all mandatory channels
     missing = check_all_channels(user_id)
 
     if missing:
@@ -656,6 +657,39 @@ def check_join_callback(call):
             show_alert=True
         )
         return
+
+    # Load balance database
+    users = load_balance_db()
+
+    if users is None:
+        bot.answer_callback_query(
+            call.id,
+            "⚠️ Database unavailable.",
+            show_alert=True
+        )
+        return
+
+    # Make sure user exists
+    user = get_or_create_user(
+        users,
+        user_id
+    )
+
+    # Give referral reward only once
+    reward_given = reward_referrer_after_verification(
+        users,
+        user_id
+    )
+
+    # Save database only if reward was given
+    if reward_given:
+        if not save_balance_db(users):
+            bot.answer_callback_query(
+                call.id,
+                "⚠️ Reward save nahi ho saka. Please try again.",
+                show_alert=True
+            )
+            return
 
     bot.answer_callback_query(
         call.id,
@@ -670,15 +704,60 @@ def check_join_callback(call):
     except Exception:
         pass
 
+    reward_text = ""
+
+    if reward_given:
+        reward_text = (
+            "\n\n🎉 <b>Referral Reward!</b>\n"
+            "Aapke referrer ko ₹20 referral balance mila."
+        )
+
     bot.send_message(
         call.message.chat.id,
         "✅ <b>Verified!</b>\n\n"
-        "Ab aap bot use kar sakte ho.",
+        "Ab aap bot use kar sakte ho."
+        + reward_text,
         parse_mode="HTML",
         reply_markup=main_menu(user_id)
     )
 
 
+# =========================================================
+# REFERRAL REWARD AFTER CHANNEL VERIFICATION
+# =========================================================
+
+def reward_referrer_after_verification(users, buyer_id):
+    buyer = users.get(buyer_id)
+
+    if not buyer:
+        return False
+
+    # Already rewarded
+    if buyer.get("rewarded", 0) == 1:
+        return False
+
+    referrer_id = buyer.get("ref", 0)
+
+    # No referrer
+    if not referrer_id:
+        return False
+
+    # Referrer must exist
+    referrer = users.get(referrer_id)
+
+    if not referrer:
+        return False
+
+    # Give ₹20 referral reward
+    referrer["ref_balance"] = (
+        referrer.get("ref_balance", 0) + 20
+    )
+
+    # Mark this referral as rewarded
+    buyer["rewarded"] = 1
+
+    return True
+    
 # =========================================================
 # BALANCE
 # =========================================================
@@ -762,8 +841,7 @@ def show_referral(message):
         f"🔗 Your Referral Link:\n"
         f"<code>{link}</code>\n\n"
         "💸 Reward: ₹20\n"
-        "Reward tab milega jab referred user apni "
-        "first successful purchase karega.\n\n"
+        "User jab 3 mandatory channels join karke verification complete karega, tab ₹20 referral balance milega.\n\n"
         f"🎁 Current Referral Balance: ₹{user['ref_balance']}\n\n"
         "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta.\n"
         "Maximum 50% product price tak use ho sakta hai.",
@@ -915,44 +993,6 @@ def show_orders(message):
         "\n".join(lines),
         parse_mode="HTML"
     )
-
-
-# =========================================================
-# SUCCESSFUL FIRST PURCHASE REFERRAL REWARD
-# =========================================================
-
-def reward_referrer_after_first_purchase(
-    users,
-    buyer_id
-):
-    buyer = users.get(buyer_id)
-
-    if not buyer:
-        return False
-
-    # Already rewarded
-    if buyer.get("rewarded", 0) == 1:
-        return False
-
-    referrer_id = buyer.get("ref", 0)
-
-    if not referrer_id:
-        return False
-
-    referrer = users.get(referrer_id)
-
-    if not referrer:
-        return False
-
-    # ₹20 referral reward
-    referrer["ref_balance"] = (
-        referrer.get("ref_balance", 0) + 20
-    )
-
-    buyer["rewarded"] = 1
-
-    return True
-
 
 # =========================================================
 # PURCHASE CONFIRMATION
@@ -1153,15 +1193,6 @@ def send_purchase_confirmation(
 
     user["ref_balance"] = (
         old_ref_balance - referral_used
-    )
-
-    # -----------------------------------------------------
-    # Referral reward
-    # -----------------------------------------------------
-
-    reward_given = reward_referrer_after_first_purchase(
-        users,
-        user_id
     )
 
     # -----------------------------------------------------
