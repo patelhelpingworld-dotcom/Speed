@@ -2767,7 +2767,8 @@ def setup_webhook():
             url=webhook_url,
             allowed_updates=[
                 "message",
-                "channel_post"
+                "channel_post",
+                "callback_query"
             ]
         )
 
