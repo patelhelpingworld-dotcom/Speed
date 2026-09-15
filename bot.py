@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import secrets
 import logging
 import queue
 import threading
@@ -49,11 +50,27 @@ app = Flask(__name__)
 # avoid hota hai.
 # =========================================================
 
-def process_update_background(update):
-    try:
-        bot.process_new_updates([update])
-    except Exception:
-        logging.exception("UPDATE PROCESSING ERROR")
+UPDATE_QUEUE_MAXSIZE = 100
+update_queue = queue.Queue(maxsize=UPDATE_QUEUE_MAXSIZE)
+
+
+def process_update_worker():
+    while True:
+        update = update_queue.get()
+        try:
+            bot.process_new_updates([update])
+        except Exception:
+            logging.exception("UPDATE PROCESSING ERROR")
+        finally:
+            update_queue.task_done()
+
+
+update_worker_thread = threading.Thread(
+    target=process_update_worker,
+    name="telegram-update-worker",
+    daemon=True
+)
+update_worker_thread.start()
 
 
 # =========================================================
@@ -106,7 +123,6 @@ PRODUCTS = {
 
 user_states = {}
 pending_funding = {}
-recent_purchases = {}
 
 # =========================================================
 # HELPERS
@@ -337,11 +353,22 @@ def is_member_of_channel(user_id, channel_id):
             member.status
         )
 
-        return member.status in (
+        if member.status in (
             "member",
             "administrator",
             "creator"
-        )
+        ):
+            return True
+
+        # Telegram can report a joined but restricted user as
+        # status="restricted" with is_member=True.
+        if (
+            member.status == "restricted"
+            and getattr(member, "is_member", False)
+        ):
+            return True
+
+        return False
 
     except Exception as e:
         logging.exception(
@@ -625,9 +652,11 @@ def start_command(message):
         )
         return
 
+    is_new_user = user_id not in users
     user = get_or_create_user(users, user_id)
+    changed = is_new_user
 
-    # Save referral attribution only once
+    # Save referral attribution only once.
     if (
         referrer_id
         and referrer_id != user_id
@@ -635,7 +664,14 @@ def start_command(message):
         and referrer_id in users
     ):
         user["ref"] = referrer_id
-        save_balance_db(users)
+        changed = True
+
+    if changed and not save_balance_db(users):
+        bot.send_message(
+            message.chat.id,
+            "⚠️ User data save nahi ho saka. Please /start dobara try karo."
+        )
+        return
 
     missing = check_all_channels(user_id)
 
@@ -643,10 +679,16 @@ def start_command(message):
         send_join_required(message.chat.id)
         return
 
+    username = (
+        f"@{message.from_user.username}"
+        if message.from_user.username
+        else "there"
+    )
+
     bot.send_message(
         message.chat.id,
         f"Welcome! 👋 {username}\n\n"
-        "👑 Owner: @SpeedFistt\n",
+        "👑 Owner: @SpeedFistt",
         reply_markup=main_menu(user_id)
     )
 
@@ -786,10 +828,15 @@ def show_balance(chat_id, user_id):
         )
         return
 
+    is_new_user = user_id not in users
     user = get_or_create_user(users, user_id)
 
-    if user_id not in users:
-        save_balance_db(users)
+    if is_new_user and not save_balance_db(users):
+        bot.send_message(
+            chat_id,
+            "⚠️ User data save nahi ho saka. Please try again."
+        )
+        return
 
     bot.send_message(
         chat_id,
@@ -938,9 +985,10 @@ def create_product_invite(product_id):
 
 
 def generate_order_id(user_id, product_id):
-    timestamp = int(time.time())
-
-    return f"ORD{timestamp}{user_id % 10000}{product_id}"
+    # Milliseconds + random suffix prevents same-second collisions.
+    timestamp_ms = int(time.time() * 1000)
+    suffix = secrets.token_hex(3).upper()
+    return f"ORD{timestamp_ms}{user_id % 10000}{product_id}{suffix}"
 
 
 def get_user_orders(user_id):
@@ -1302,10 +1350,37 @@ def send_purchase_confirmation(
     )
 
     if not order_saved:
+        # The balance was already deducted. Compensate immediately
+        # so a failed order write does not leave the user charged.
+        users_rollback = load_balance_db()
+        if users_rollback is not None:
+            rollback_user = get_or_create_user(
+                users_rollback,
+                user_id
+            )
+            rollback_user["balance"] += main_balance_needed
+            rollback_user["ref_balance"] += referral_used
+            if not save_balance_db(users_rollback):
+                logging.critical(
+                    "ORDER SAVE FAILED AND BALANCE ROLLBACK FAILED: %s",
+                    order_id
+                )
+                bot.send_message(
+                    message.chat.id,
+                    "🚨 Purchase save error. Balance rollback bhi fail hua. "
+                    "Admin se contact karo. Order ID: " + order_id
+                )
+                return
+
         logging.error(
-            "ORDER SAVE FAILED: %s",
+            "ORDER SAVE FAILED; BALANCE ROLLED BACK: %s",
             order_id
         )
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Order save nahi ho saka. Purchase cancel kar diya gaya aur balance restore kar diya gaya. Please try again."
+        )
+        return
 
     # -----------------------------------------------------
     # SEND ACCESS BUTTON
@@ -2819,12 +2894,14 @@ def webhook():
 
         update = telebot.types.Update.de_json(data)
 
-        # Process update outside the Flask request.
-        threading.Thread(
-            target=process_update_background,
-            args=(update,),
-            daemon=True
-        ).start()
+        # Queue the update so Flask can answer Telegram immediately.
+        # A single worker keeps balance/order DB read-modify-write
+        # operations serialized, avoiding lost updates and coupon races.
+        try:
+            update_queue.put_nowait(update)
+        except queue.Full:
+            logging.error("UPDATE QUEUE FULL")
+            return "QUEUE FULL", 503
 
         return "OK", 200
 
