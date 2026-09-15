@@ -22,11 +22,11 @@ ADMIN_ID = 1006157952
 
 # Balance database channel
 BALANCE_DB_CHAT_ID = -1003892586354
-BALANCE_DB_MESSAGE_ID = 4
+BALANCE_DB_MESSAGE_ID = 9
 
 # Orders + coupons database channel
 ORDERS_DB_CHAT_ID = -1003892586354
-ORDERS_DB_MESSAGE_ID = 8
+ORDERS_DB_MESSAGE_ID = 10
 
 OWNER_USERNAME = "@SpeedFistt"
 
@@ -458,7 +458,10 @@ def products_menu():
     )
 
     markup.row(
-        "🛒 OBB & FILES",
+        "🛒 OBB & FILES"
+    )
+    
+    markup.row(
         "🛒 Month (ESP+AIMBOT)"
     )
 
@@ -480,7 +483,7 @@ def send_products(chat_id):
         "1️⃣ OBB & FILES — ₹499/-\n"
         "2️⃣ Month Hack — ₹999/-\n"
         "3️⃣ Season Hack — ₹1499/-\n\n"
-        "👇 Product select karke purchase karo."
+        "👇 Select Product to buy."
     )
 
     bot.send_message(
