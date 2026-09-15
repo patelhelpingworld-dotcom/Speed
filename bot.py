@@ -5,6 +5,7 @@ import logging
 import queue
 import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import telebot
 from telebot import types
@@ -2729,68 +2730,9 @@ def text_state_router(message):
     content_types=["photo"]
 )
 def photo_handler(message):
-    user_id = message.from_user.id
-
-    state = user_states.get(user_id)
-
-    if not state:
-        bot.send_message(
-            message.chat.id,
-            "📸 Payment proof bhejne ke liye "
-            "pehle 💳 Add Funds select karo."
-        )
-        return
-
-    if state.get("stage") != "proof":
-        bot.send_message(
-            message.chat.id,
-            "❌ Abhi photo ki zarurat nahi hai."
-        )
-        return
-
-    amount = safe_int(
-        state.get("amount")
-    )
-
-    try:
-        bot.send_message(
-            ADMIN_ID,
-            "💳 <b>NEW FUNDING REQUEST</b>\n\n"
-            f"👤 User ID: <code>{user_id}</code>\n"
-            f"💰 Amount: ₹{amount}\n"
-            f"📅 Time: {now_str()}\n\n"
-            f"Verify karke:\n"
-            f"<code>/add {user_id} {amount}</code>",
-            parse_mode="HTML"
-        )
-
-        bot.forward_message(
-            ADMIN_ID,
-            message.chat.id,
-            message.message_id
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "✅ Screenshot received.\n\n"
-            f"💰 Amount: ₹{amount}\n"
-            "👨‍💼 Admin verification pending hai."
-        )
-
-        user_states.pop(
-            user_id,
-            None
-        )
-
-    except Exception:
-        logging.exception(
-            "PHOTO PROOF ERROR"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "⚠️ Screenshot forward nahi ho saka."
-        )
+    # Use the same funding workflow as text/UTR proofs.
+    # This keeps Approve/Decline buttons consistent for screenshots too.
+    handle_add_funds_proof(message)
 
 
 # =========================================================
