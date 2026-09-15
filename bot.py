@@ -2,6 +2,8 @@ import os
 import re
 import time
 import logging
+import queue
+import threading
 from datetime import datetime, timedelta
 
 import telebot
@@ -36,6 +38,69 @@ bot = telebot.TeleBot(
 )
 
 app = Flask(__name__)
+
+# =========================================================
+# WEBHOOK UPDATE QUEUE
+# =========================================================
+# Telegram webhook ko jaldi 200 OK dene ke liye updates queue
+# me daale jaate hain. Isse slow Telegram/API operation ki wajah
+# se webhook request block nahi hoti.
+# =========================================================
+
+update_queue = queue.Queue()
+user_update_locks = {}
+user_update_locks_guard = threading.Lock()
+
+
+def get_user_update_lock(user_id):
+    with user_update_locks_guard:
+        if user_id not in user_update_locks:
+            user_update_locks[user_id] = threading.Lock()
+        return user_update_locks[user_id]
+
+
+def update_worker():
+    while True:
+        update = update_queue.get()
+
+        try:
+            # Keep updates from the same user ordered, while allowing
+            # different users to be processed concurrently.
+            user_id = None
+
+            if getattr(update, "message", None):
+                user_id = getattr(update.message.from_user, "id", None)
+            elif getattr(update, "callback_query", None):
+                user_id = getattr(update.callback_query.from_user, "id", None)
+
+            if user_id:
+                with get_user_update_lock(user_id):
+                    bot.process_new_updates([update])
+            else:
+                bot.process_new_updates([update])
+
+        except Exception:
+            logging.exception("UPDATE PROCESSING ERROR")
+
+            # Best-effort user-facing recovery if a handler crashes.
+            try:
+                if getattr(update, "message", None):
+                    bot.send_message(
+                        update.message.chat.id,
+                        "⚠️ Temporary error aa gaya. Please try again."
+                    )
+            except Exception:
+                logging.exception("ERROR RECOVERY MESSAGE FAILED")
+        finally:
+            update_queue.task_done()
+
+
+for worker_no in range(4):
+    threading.Thread(
+        target=update_worker,
+        name=f"telegram-update-worker-{worker_no + 1}",
+        daemon=True
+    ).start()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -835,16 +900,41 @@ def show_referral(message):
 
     user = get_or_create_user(users, user_id)
 
-    bot.send_message(
-        message.chat.id,
-        "👥 <b>Referral</b>\n\n"
-        f"🔗 Your Referral Link:\n"
+    referral_text = (
+        "👥 <b>REFER & EARN</b>\n\n"
+        "🎁 Har successful referral par <b>₹20</b> referral balance\n"
+        "🔗 Apna unique referral link share karo\n"
+        "💰 Referral balance se eligible purchases me save karo\n\n"
+        f"🔗 <b>Your Referral Link:</b>\n"
         f"<code>{link}</code>\n\n"
-        "💸 Reward: ₹20 Per Referral\n\n"
-        f"🎁 Current Referral Balance: ₹{user['ref_balance']}\n\n"
-        "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta.\n",
-        parse_mode="HTML"
+        f"🎁 <b>Current Referral Balance:</b> ₹{user['ref_balance']}\n\n"
+        "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta."
     )
+
+    banner_path = "referral_banner.png"
+
+    try:
+        if Path(banner_path).exists():
+            with open(banner_path, "rb") as photo:
+                bot.send_photo(
+                    message.chat.id,
+                    photo,
+                    caption=referral_text,
+                    parse_mode="HTML"
+                )
+        else:
+            bot.send_message(
+                message.chat.id,
+                referral_text,
+                parse_mode="HTML"
+            )
+    except Exception:
+        logging.exception("REFERRAL BANNER ERROR")
+        bot.send_message(
+            message.chat.id,
+            referral_text,
+            parse_mode="HTML"
+        )
 
 # =========================================================
 # PURCHASE / DELIVERY SYSTEM
@@ -996,12 +1086,45 @@ def show_orders(message):
 # PURCHASE CONFIRMATION
 # =========================================================
 
+purchase_guard = {}
+purchase_guard_lock = threading.Lock()
+PURCHASE_GUARD_SECONDS = 2
+
+
 def send_purchase_confirmation(
     message,
     product_id,
     coupon_code=None
 ):
     user_id = message.from_user.id
+
+    # Prevent accidental double-taps from creating two purchases.
+    purchase_key = (
+        user_id,
+        product_id,
+        (coupon_code or "-").upper()
+    )
+
+    now_ts = time.time()
+
+    with purchase_guard_lock:
+        previous_ts = purchase_guard.get(purchase_key, 0)
+
+        if now_ts - previous_ts < PURCHASE_GUARD_SECONDS:
+            bot.send_message(
+                message.chat.id,
+                "⚠️ Ye purchase request abhi process ho rahi hai. "
+                "Duplicate order nahi banaya gaya."
+            )
+            return
+
+        purchase_guard[purchase_key] = now_ts
+
+        # Keep the small in-memory guard clean.
+        cutoff = now_ts - 60
+        for key, ts in list(purchase_guard.items()):
+            if ts < cutoff:
+                purchase_guard.pop(key, None)
 
     # -----------------------------------------------------
     # Mandatory channels check AGAIN
@@ -2052,6 +2175,33 @@ def show_statistics(message):
         for order in orders
     )
 
+    today = datetime.now().date()
+    week_start = today - timedelta(days=6)
+
+    today_orders = 0
+    today_sales = 0
+    week_orders = 0
+    week_sales = 0
+
+    for order in orders:
+        try:
+            order_date = datetime.strptime(
+                order[6].strip(),
+                "%Y-%m-%d %H:%M:%S"
+            ).date()
+        except Exception:
+            continue
+
+        amount = safe_int(order[5])
+
+        if order_date == today:
+            today_orders += 1
+            today_sales += amount
+
+        if order_date >= week_start:
+            week_orders += 1
+            week_sales += amount
+
     product_counts = {
         1: 0,
         2: 0,
@@ -2070,6 +2220,8 @@ def show_statistics(message):
         f"👥 Users: {total_users}\n"
         f"📦 Orders: {total_orders}\n"
         f"💰 Total Sales: ₹{total_sales}\n"
+        f"📅 Today: {today_orders} orders / ₹{today_sales}\n"
+        f"📈 Last 7 Days: {week_orders} orders / ₹{week_sales}\n"
         f"💳 User Main Balances: ₹{total_main_balance}\n"
         f"🎁 Referral Balances: ₹{total_ref_balance}\n\n"
         f"1️⃣ Product A Orders: {product_counts[1]}\n"
@@ -2725,7 +2877,8 @@ def webhook():
 
         update = telebot.types.Update.de_json(data)
 
-        bot.process_new_updates([update])
+        # Process update in background so Telegram gets a fast 200 OK.
+        update_queue.put(update)
 
         return "OK", 200
 
