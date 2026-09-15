@@ -89,12 +89,12 @@ PRODUCTS = {
         "group_id": -1004494287362
     },
     2: {
-        "name": "Month (ESP+AIMBOT)",
+        "name": "Month Hack",
         "price": 599,
         "group_id": -1003778035299
     },
     3: {
-        "name": "Season (ESP+AIMBOT)",
+        "name": "Season Hack",
         "price": 1199,
         "group_id": -1004203063772
     }
@@ -458,12 +458,12 @@ def products_menu():
     )
 
     markup.row(
-        "🛒 Buy Product 1",
-        "🛒 Buy Product 2"
+        "🛒 OBB & FILES",
+        "🛒 Month (ESP+AIMBOT)"
     )
 
     markup.row(
-        "🛒 Buy Product 3"
+        "🛒 Season (ESP+AIMBOT)"
     )
 
     markup.row(
@@ -478,8 +478,8 @@ def send_products(chat_id):
     text = (
         "🛍 <b>Products</b>\n\n"
         "1️⃣ OBB & FILES — ₹499/-\n"
-        "2️⃣ Month (ESP+AIMBOT) — ₹999/-\n"
-        "3️⃣ Season (ESP+AIMBOT) — ₹1499/-\n\n"
+        "2️⃣ Month Hack — ₹999/-\n"
+        "3️⃣ Season Hack — ₹1499/-\n\n"
         "👇 Product select karke purchase karo."
     )
 
@@ -2692,21 +2692,21 @@ def text_state_router(message):
     # Selected coupon + product purchase
     # -----------------------------------------------------
 
-    if text == "🛒 Buy Product 1":
+    if text == "🛒 OBB & FILES":
         purchase_from_button(
             message,
             1
         )
         return
 
-    if text == "🛒 Buy Product 2":
+    if text == "🛒 Month (ESP+AIMBOT)":
         purchase_from_button(
             message,
             2
         )
         return
 
-    if text == "🛒 Buy Product 3":
+    if text == "🛒 Season (ESP+AIMBOT)":
         purchase_from_button(
             message,
             3
