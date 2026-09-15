@@ -2,8 +2,8 @@ import os
 import re
 import time
 import logging
+import queue
 import threading
-from functools import wraps
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -39,17 +39,6 @@ bot = telebot.TeleBot(
 )
 
 app = Flask(__name__)
-
-# Serialize database read-modify-write operations. RLock allows
-# mutation functions to safely call load/save helpers internally.
-DB_LOCK = threading.RLock()
-
-def db_locked(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        with DB_LOCK:
-            return func(*args, **kwargs)
-    return wrapper
 
 # =========================================================
 # WEBHOOK UPDATE PROCESSING
@@ -117,7 +106,6 @@ PRODUCTS = {
 
 user_states = {}
 pending_funding = {}
-
 # =========================================================
 # HELPERS
 # =========================================================
@@ -296,7 +284,6 @@ def save_orders_db(text):
         return False
 
 
-@db_locked
 def append_order(order_line):
     text = load_orders_db()
 
@@ -348,17 +335,11 @@ def is_member_of_channel(user_id, channel_id):
             member.status
         )
 
-        if member.status in (
+        return member.status in (
             "member",
             "administrator",
             "creator"
-        ):
-            return True
-
-        if member.status == "restricted" and getattr(member, "is_member", False):
-            return True
-
-        return False
+        )
 
     except Exception as e:
         logging.exception(
@@ -552,7 +533,6 @@ def get_coupon(code):
     return coupons.get(code.upper())
 
 
-@db_locked
 def update_coupon_usage(code):
     text = load_orders_db()
 
@@ -643,9 +623,7 @@ def start_command(message):
         )
         return
 
-    is_new_user = user_id not in users
     user = get_or_create_user(users, user_id)
-    changed = is_new_user
 
     # Save referral attribution only once
     if (
@@ -655,14 +633,7 @@ def start_command(message):
         and referrer_id in users
     ):
         user["ref"] = referrer_id
-        changed = True
-
-    if changed and not save_balance_db(users):
-        bot.send_message(
-            message.chat.id,
-            "âš ï¸ User data save nahi ho saka. Please /start dobara try karo."
-        )
-        return
+        save_balance_db(users)
 
     missing = check_all_channels(user_id)
 
@@ -673,9 +644,8 @@ def start_command(message):
     username = (
         f"@{message.from_user.username}"
         if message.from_user.username
-        else message.from_user.first_name
+        else (message.from_user.first_name or "there")
     )
-
     bot.send_message(
         message.chat.id,
         f"Welcome! ðŸ‘‹ {username}\n\n"
@@ -773,7 +743,6 @@ def check_join_callback(call):
 # REFERRAL REWARD AFTER CHANNEL VERIFICATION
 # =========================================================
 
-@db_locked
 def reward_referrer_after_verification(users, buyer_id):
     buyer = users.get(buyer_id)
 
@@ -820,13 +789,10 @@ def show_balance(chat_id, user_id):
         )
         return
 
-    is_new_user = user_id not in users
     user = get_or_create_user(users, user_id)
 
-    if is_new_user:
-        if not save_balance_db(users):
-            bot.send_message(chat_id, "âš ï¸ User data save nahi ho saka. Please try again.")
-            return
+    if user_id not in users:
+        save_balance_db(users)
 
     bot.send_message(
         chat_id,
@@ -975,10 +941,9 @@ def create_product_invite(product_id):
 
 
 def generate_order_id(user_id, product_id):
-    # Milliseconds + cryptographically strong random suffix avoid collisions.
-    import secrets
-    timestamp_ms = int(time.time() * 1000)
-    return f"ORD{timestamp_ms}{user_id % 10000}{product_id}{secrets.token_hex(3).upper()}"
+    timestamp = int(time.time())
+
+    return f"ORD{timestamp}{user_id % 10000}{product_id}"
 
 
 def get_user_orders(user_id):
@@ -1078,7 +1043,6 @@ purchase_guard_lock = threading.Lock()
 PURCHASE_GUARD_SECONDS = 2
 
 
-@db_locked
 def send_purchase_confirmation(
     message,
     product_id,
@@ -1923,7 +1887,6 @@ def funding_decision_callback(call):
 # ADMIN: ADD BALANCE
 # =========================================================
 
-@db_locked
 def admin_add_balance(user_id, amount):
     users = load_balance_db()
 
@@ -2885,8 +2848,7 @@ def setup_webhook():
         time.sleep(1)
 
         result = bot.set_webhook(
-            url=webhook_url,
-            drop_pending_updates=False
+            url=webhook_url
         )
 
         logging.info("WEBHOOK SET: %s", result)
