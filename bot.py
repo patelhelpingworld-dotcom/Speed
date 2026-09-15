@@ -676,7 +676,7 @@ def start_command(message):
 
     bot.send_message(
         message.chat.id,
-        "Welcome! 👋 {username}\\n\n"
+        f"Welcome! 👋 {username}\n\n"
         "👑 Owner: @SpeedFistt\n",
         reply_markup=main_menu(user_id)
     )
