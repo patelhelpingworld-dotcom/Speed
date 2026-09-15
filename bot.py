@@ -84,17 +84,17 @@ MANDATORY_CHANNELS = [
 
 PRODUCTS = {
     1: {
-        "name": "Digital Product A",
+        "name": "OBB & FILES",
         "price": 499,
         "group_id": -1004494287362
     },
     2: {
-        "name": "Digital Product B",
+        "name": "Month (ESP+AIMBOT)",
         "price": 599,
         "group_id": -1003778035299
     },
     3: {
-        "name": "Digital Product C",
+        "name": "Season (ESP+AIMBOT)",
         "price": 1199,
         "group_id": -1004203063772
     }
@@ -415,7 +415,7 @@ def main_menu(user_id):
     )
 
     markup.row(
-        "🛍 Products",
+        "🛍 Hacks",
         "💰 Balance"
     )
 
@@ -479,9 +479,9 @@ def products_menu():
 def send_products(chat_id):
     text = (
         "🛍 <b>Products</b>\n\n"
-        "1️⃣ Digital Product A — ₹499\n"
-        "2️⃣ Digital Product B — ₹599\n"
-        "3️⃣ Digital Product C — ₹1199\n\n"
+        "1️⃣ OBB & FILES — ₹499/-\n"
+        "2️⃣ Month (ESP+AIMBOT) — ₹999/-\n"
+        "3️⃣ Season (ESP+AIMBOT) — ₹1499/-\n\n"
         "👇 Product select karke purchase karo."
     )
 
@@ -645,9 +645,8 @@ def start_command(message):
 
     bot.send_message(
         message.chat.id,
-        "👑 Owner: @SpeedFistt\n\n"
-        "Welcome! 👋\n"
-        "Neeche menu se option select karo.",
+        "Welcome! 👋 {username}\\n\n"
+        "👑 Owner: @SpeedFistt\n",
         reply_markup=main_menu(user_id)
     )
 
@@ -1366,7 +1365,7 @@ def buy_command(message):
     if len(parts) < 2:
         bot.send_message(
             message.chat.id,
-            "🛍 Products menu se product select karo.",
+            "🛍 Hacks menu se product select karo.",
             reply_markup=products_menu()
         )
         return
@@ -2487,7 +2486,7 @@ def cancel_command(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "🛍 Products"
+        message.text == "🛍 Hacks"
 )
 def products_button(message):
     if not require_join(message):
