@@ -674,9 +674,16 @@ def start_command(message):
         send_join_required(message.chat.id)
         return
 
-    bot.send_message(
+    username = (
+    f"@{message.from_user.username}"
+    if message.from_user.username
+    else message.from_user.first_name
+)
+
+bot.send_message(
     message.chat.id,
-    f"Welcome! 👋 {username}\n\n👑 Owner: @SpeedFistt\n",
+    f"Welcome! 👋 {username}\n\n"
+    "👑 Owner: @SpeedFistt\n",
     reply_markup=main_menu(user_id)
 )
 
