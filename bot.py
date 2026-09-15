@@ -40,72 +40,20 @@ bot = telebot.TeleBot(
 app = Flask(__name__)
 
 # =========================================================
-# WEBHOOK UPDATE QUEUE
+# WEBHOOK UPDATE PROCESSING
 # =========================================================
-# Telegram webhook ko jaldi 200 OK dene ke liye updates queue
-# me daale jaate hain. Isse slow Telegram/API operation ki wajah
-# se webhook request block nahi hoti.
+# Webhook request ko turant 200 OK milta hai, aur Telegram update
+# background thread me process hota hai. Isse slow handler webhook
+# request ko block nahi karta, aur custom queue/worker deadlock risk
+# avoid hota hai.
 # =========================================================
 
-update_queue = queue.Queue()
-user_update_locks = {}
-user_update_locks_guard = threading.Lock()
+def process_update_background(update):
+    try:
+        bot.process_new_updates([update])
+    except Exception:
+        logging.exception("UPDATE PROCESSING ERROR")
 
-
-def get_user_update_lock(user_id):
-    with user_update_locks_guard:
-        if user_id not in user_update_locks:
-            user_update_locks[user_id] = threading.Lock()
-        return user_update_locks[user_id]
-
-
-def update_worker():
-    while True:
-        update = update_queue.get()
-
-        try:
-            # Keep updates from the same user ordered, while allowing
-            # different users to be processed concurrently.
-            user_id = None
-
-            if getattr(update, "message", None):
-                user_id = getattr(update.message.from_user, "id", None)
-            elif getattr(update, "callback_query", None):
-                user_id = getattr(update.callback_query.from_user, "id", None)
-
-            if user_id:
-                with get_user_update_lock(user_id):
-                    bot.process_new_updates([update])
-            else:
-                bot.process_new_updates([update])
-
-        except Exception:
-            logging.exception("UPDATE PROCESSING ERROR")
-
-            # Best-effort user-facing recovery if a handler crashes.
-            try:
-                if getattr(update, "message", None):
-                    bot.send_message(
-                        update.message.chat.id,
-                        "⚠️ Temporary error aa gaya. Please try again."
-                    )
-            except Exception:
-                logging.exception("ERROR RECOVERY MESSAGE FAILED")
-        finally:
-            update_queue.task_done()
-
-
-for worker_no in range(4):
-    threading.Thread(
-        target=update_worker,
-        name=f"telegram-update-worker-{worker_no + 1}",
-        daemon=True
-    ).start()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
-)
 
 # =========================================================
 # MANDATORY CHANNELS
@@ -2877,8 +2825,12 @@ def webhook():
 
         update = telebot.types.Update.de_json(data)
 
-        # Process update in background so Telegram gets a fast 200 OK.
-        update_queue.put(update)
+        # Process update outside the Flask request.
+        threading.Thread(
+            target=process_update_background,
+            args=(update,),
+            daemon=True
+        ).start()
 
         return "OK", 200
 
