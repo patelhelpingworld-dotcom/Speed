@@ -104,6 +104,7 @@ PRODUCTS = {
 # =========================================================
 
 user_states = {}
+pending_funding = {}
 recent_purchases = {}
 
 # =========================================================
@@ -1764,48 +1765,37 @@ def handle_add_funds_amount(message):
 
 def handle_add_funds_proof(message):
     user_id = message.from_user.id
-
     state = user_states.get(user_id)
-
     if not state or state.get("stage") != "proof":
         return False
 
-    amount = safe_int(
-        state.get("amount")
-    )
-
+    amount = safe_int(state.get("amount"))
     if amount <= 0:
         user_states.pop(user_id, None)
-
-        bot.send_message(
-            message.chat.id,
-            "⚠️ Payment request expired. "
-            "Please start Add Funds again."
-        )
+        bot.send_message(message.chat.id, "⚠️ Payment request expired. Please start Add Funds again.")
         return True
 
-    # -----------------------------------------------------
-    # Forward proof to admin
-    # -----------------------------------------------------
+    request_id = str(int(time.time() * 1000))
+    pending_funding[(user_id, request_id)] = {"amount": amount, "created_at": now_str()}
 
     try:
+        markup = types.InlineKeyboardMarkup()
+        markup.row(
+            types.InlineKeyboardButton("✅ Approve", callback_data=f"fund_approve:{user_id}:{request_id}"),
+            types.InlineKeyboardButton("❌ Decline", callback_data=f"fund_decline:{user_id}:{request_id}")
+        )
+
         bot.send_message(
             ADMIN_ID,
             "💳 <b>NEW FUNDING REQUEST</b>\n\n"
             f"👤 User ID: <code>{user_id}</code>\n"
             f"💰 Amount: ₹{amount}\n"
             f"📅 Time: {now_str()}\n\n"
-            "Verify payment and then use:\n"
-            f"<code>/add {user_id} {amount}</code>",
-            parse_mode="HTML"
+            "Payment proof neeche attached hai.\n"
+            "Verify karke button use karein:",
+            parse_mode="HTML", reply_markup=markup
         )
-
-        bot.forward_message(
-            ADMIN_ID,
-            message.chat.id,
-            message.message_id
-        )
-
+        bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
         bot.send_message(
             message.chat.id,
             "✅ Payment proof received.\n\n"
@@ -1813,24 +1803,81 @@ def handle_add_funds_proof(message):
             "👨‍💼 Admin verification pending hai.\n\n"
             "Verification ke baad balance update ho jayega."
         )
-
-        user_states.pop(
-            user_id,
-            None
-        )
-
+        user_states.pop(user_id, None)
     except Exception:
-        logging.exception(
-            "FUNDING PROOF ERROR"
-        )
-
-        bot.send_message(
-            message.chat.id,
-            "⚠️ Proof send nahi ho saka.\n"
-            "Please try again."
-        )
-
+        pending_funding.pop((user_id, request_id), None)
+        logging.exception("FUNDING PROOF ERROR")
+        bot.send_message(message.chat.id, "⚠️ Proof send nahi ho saka.\nPlease try again.")
     return True
+
+
+# =========================================================
+# ADMIN: FUNDING APPROVE / DECLINE
+# =========================================================
+
+@bot.callback_query_handler(
+    func=lambda call: call.data.startswith("fund_approve:") or call.data.startswith("fund_decline:")
+)
+def funding_decision_callback(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ Admin only.", show_alert=True)
+        return
+
+    parts = call.data.split(":")
+    if len(parts) != 3:
+        bot.answer_callback_query(call.id, "⚠️ Invalid request.", show_alert=True)
+        return
+
+    action, user_id_text, request_id = parts
+    target_user_id = safe_int(user_id_text)
+    request = pending_funding.get((target_user_id, request_id))
+
+    if not request:
+        bot.answer_callback_query(call.id, "⚠️ Request already processed or expired.", show_alert=True)
+        return
+
+    amount = safe_int(request.get("amount"))
+
+    if action == "fund_approve":
+        success, result = admin_add_balance(target_user_id, amount)
+        if not success:
+            bot.answer_callback_query(call.id, f"❌ {result}", show_alert=True)
+            return
+
+        pending_funding.pop((target_user_id, request_id), None)
+        bot.answer_callback_query(call.id, "✅ Payment approved.", show_alert=True)
+        try:
+            bot.edit_message_reply_markup(ADMIN_ID, call.message.message_id, reply_markup=None)
+        except Exception:
+            pass
+        try:
+            bot.send_message(
+                target_user_id,
+                "✅ <b>Payment Approved!</b>\n\n"
+                f"💰 ₹{amount} balance me add kar diya gaya hai.\n"
+                f"💳 Current Balance: ₹{result}", parse_mode="HTML"
+            )
+        except Exception:
+            logging.exception("FUNDING APPROVE USER NOTIFY ERROR")
+        return
+
+    pending_funding.pop((target_user_id, request_id), None)
+    bot.answer_callback_query(call.id, "❌ Payment declined.", show_alert=True)
+    try:
+        bot.edit_message_reply_markup(ADMIN_ID, call.message.message_id, reply_markup=None)
+    except Exception:
+        pass
+    try:
+        bot.send_message(
+            target_user_id,
+            "❌ <b>Payment Declined</b>\n\n"
+            f"💰 Requested Amount: ₹{amount}\n"
+            "Payment proof verify nahi ho saka.\n\n"
+            "Agar payment genuinely kiya hai, correct UTR/screenshot ke saath dobara Add Funds request bhejo.",
+            parse_mode="HTML"
+        )
+    except Exception:
+        logging.exception("FUNDING DECLINE USER NOTIFY ERROR")
 
 
 # =========================================================
@@ -1906,6 +1953,12 @@ def admin_add_command(message):
             f"❌ {result}"
         )
         return
+
+    for key, pending in list(pending_funding.items()):
+        pending_user_id, pending_request_id = key
+        if pending_user_id == target_user_id and safe_int(pending.get("amount")) == amount:
+            pending_funding.pop(key, None)
+            break
 
     bot.send_message(
         message.chat.id,
