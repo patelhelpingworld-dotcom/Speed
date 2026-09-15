@@ -369,25 +369,25 @@ def send_join_required(chat_id):
     for channel in MANDATORY_CHANNELS:
         markup.add(
             types.InlineKeyboardButton(
-                f"ðŸ“¢ JOIN {channel['name']}",
+                f"📢 JOIN {channel['name']}",
                 url=channel["link"]
             )
         )
 
     markup.add(
         types.InlineKeyboardButton(
-            "âœ… I'VE JOINED",
+            "✅ I'VE JOINED",
             callback_data="check_join"
         )
     )
 
     bot.send_message(
         chat_id,
-        "ðŸ” <b>Join Required</b>\n\n"
+        "🔐 <b>Join Required</b>\n\n"
         "Bot use karne se pehle neeche diye gaye "
         "teeno channels join karo.\n\n"
         "Join karne ke baad "
-        "<b>âœ… I'VE JOINED</b> press karo.",
+        "<b>✅ I'VE JOINED</b> press karo.",
         parse_mode="HTML",
         reply_markup=markup
     )
@@ -413,22 +413,22 @@ def main_menu(user_id):
     )
 
     markup.row(
-        "ðŸ› Hacks",
-        "ðŸ’° Balance"
+        "🛍 Hacks",
+        "💰 Balance"
     )
 
     markup.row(
-        "ðŸ’³ Add Funds",
-        "ðŸ“œ My Orders"
+        "💳 Add Funds",
+        "📜 My Orders"
     )
 
     markup.row(
-        "ðŸ‘¤ Profile",
-        "ðŸ‘¥ Referral"
+        "👤 Profile",
+        "👥 Referral"
     )
 
     if is_admin(user_id):
-        markup.row("ðŸ‘¨â€ðŸ’¼ Admin Panel")
+        markup.row("👨‍💼 Admin Panel")
 
     return markup
 
@@ -439,11 +439,11 @@ def admin_menu():
     )
 
     markup.row(
-        "ðŸ’³ Add Balance",
-        "ðŸ“Š Statistics"
+        "💳 Add Balance",
+        "📊 Statistics"
     )
 
-    markup.row("ðŸ  Main Menu")
+    markup.row("🏠 Main Menu")
 
     return markup
 
@@ -458,17 +458,17 @@ def products_menu():
     )
 
     markup.row(
-        "ðŸ›’ Buy Product 1",
-        "ðŸ›’ Buy Product 2"
+        "🛒 Buy Product 1",
+        "🛒 Buy Product 2"
     )
 
     markup.row(
-        "ðŸ›’ Buy Product 3"
+        "🛒 Buy Product 3"
     )
 
     markup.row(
-        "ðŸŽŸ Apply Coupon",
-        "ðŸ  Main Menu"
+        "🎟 Apply Coupon",
+        "🏠 Main Menu"
     )
 
     return markup
@@ -476,11 +476,11 @@ def products_menu():
 
 def send_products(chat_id):
     text = (
-        "ðŸ› <b>Products</b>\n\n"
-        "1ï¸âƒ£ OBB & FILES â€” â‚¹499/-\n"
-        "2ï¸âƒ£ Month (ESP+AIMBOT) â€” â‚¹999/-\n"
-        "3ï¸âƒ£ Season (ESP+AIMBOT) â€” â‚¹1499/-\n\n"
-        "ðŸ‘‡ Product select karke purchase karo."
+        "🛍 <b>Products</b>\n\n"
+        "1️⃣ OBB & FILES — ₹499/-\n"
+        "2️⃣ Month (ESP+AIMBOT) — ₹999/-\n"
+        "3️⃣ Season (ESP+AIMBOT) — ₹1499/-\n\n"
+        "👇 Product select karke purchase karo."
     )
 
     bot.send_message(
@@ -618,7 +618,7 @@ def start_command(message):
     if users is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Database temporarily unavailable. "
+            "⚠️ Database temporarily unavailable. "
             "Please try again later."
         )
         return
@@ -648,8 +648,8 @@ def start_command(message):
     )
     bot.send_message(
         message.chat.id,
-        f"Welcome! ðŸ‘‹ {username}\n\n"
-        "ðŸ‘‘ Owner: @SpeedFistt\n",
+        f"Welcome! 👋 {username}\n\n"
+        "👑 Owner: @SpeedFistt\n",
         reply_markup=main_menu(user_id)
     )
 
@@ -670,7 +670,7 @@ def check_join_callback(call):
     if missing:
         bot.answer_callback_query(
             call.id,
-            "âŒ Abhi saare channels join nahi hue.",
+            "❌ Abhi saare channels join nahi hue.",
             show_alert=True
         )
         return
@@ -681,7 +681,7 @@ def check_join_callback(call):
     if users is None:
         bot.answer_callback_query(
             call.id,
-            "âš ï¸ Database unavailable.",
+            "⚠️ Database unavailable.",
             show_alert=True
         )
         return
@@ -703,14 +703,14 @@ def check_join_callback(call):
         if not save_balance_db(users):
             bot.answer_callback_query(
                 call.id,
-                "âš ï¸ Reward save nahi ho saka. Please try again.",
+                "⚠️ Reward save nahi ho saka. Please try again.",
                 show_alert=True
             )
             return
 
     bot.answer_callback_query(
         call.id,
-        "âœ… Verification successful!"
+        "✅ Verification successful!"
     )
 
     try:
@@ -725,13 +725,13 @@ def check_join_callback(call):
 
     if reward_given:
         reward_text = (
-            "\n\nðŸŽ‰ <b>Referral Reward!</b>\n"
-            "Aapke referrer ko â‚¹20 referral balance mila."
+            "\n\n🎉 <b>Referral Reward!</b>\n"
+            "Aapke referrer ko ₹20 referral balance mila."
         )
 
     bot.send_message(
         call.message.chat.id,
-        "âœ… <b>Verified!</b>\n\n"
+        "✅ <b>Verified!</b>\n\n"
         "Ab aap bot use kar sakte ho."
         + reward_text,
         parse_mode="HTML",
@@ -765,7 +765,7 @@ def reward_referrer_after_verification(users, buyer_id):
     if not referrer:
         return False
 
-    # Give â‚¹20 referral reward
+    # Give ₹20 referral reward
     referrer["ref_balance"] = (
         referrer.get("ref_balance", 0) + 20
     )
@@ -785,7 +785,7 @@ def show_balance(chat_id, user_id):
     if users is None:
         bot.send_message(
             chat_id,
-            "âš ï¸ Database unavailable."
+            "⚠️ Database unavailable."
         )
         return
 
@@ -796,9 +796,9 @@ def show_balance(chat_id, user_id):
 
     bot.send_message(
         chat_id,
-        f"ðŸ’° <b>Main Balance:</b> â‚¹{user['balance']}\n"
-        f"ðŸŽ <b>Referral Balance:</b> â‚¹{user['ref_balance']}\n\n"
-        f"â„¹ï¸ Referral balance sirf purchases mein use ho sakta hai.",
+        f"💰 <b>Main Balance:</b> ₹{user['balance']}\n"
+        f"🎁 <b>Referral Balance:</b> ₹{user['ref_balance']}\n\n"
+        f"ℹ️ Referral balance sirf purchases mein use ho sakta hai.",
         parse_mode="HTML"
     )
 
@@ -818,9 +818,9 @@ def show_profile(message):
 
     bot.send_message(
         message.chat.id,
-        "ðŸ‘¤ <b>Profile</b>\n\n"
-        f"ðŸ†” ID: <code>{user.id}</code>\n"
-        f"ðŸ‘¤ Username: {username}",
+        "👤 <b>Profile</b>\n\n"
+        f"🆔 ID: <code>{user.id}</code>\n"
+        f"👤 Username: {username}",
         parse_mode="HTML"
     )
 
@@ -837,7 +837,7 @@ def show_referral(message):
     if not link:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Referral link generate nahi ho saka."
+            "⚠️ Referral link generate nahi ho saka."
         )
         return
 
@@ -846,21 +846,21 @@ def show_referral(message):
     if users is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Database unavailable."
+            "⚠️ Database unavailable."
         )
         return
 
     user = get_or_create_user(users, user_id)
 
     referral_text = (
-        "ðŸ‘¥ <b>REFER & EARN</b>\n\n"
-        "ðŸŽ Har successful referral par <b>â‚¹20</b> referral balance\n"
-        "ðŸ”— Apna unique referral link share karo\n"
-        "ðŸ’° Referral balance se eligible purchases me save karo\n\n"
-        f"ðŸ”— <b>Your Referral Link:</b>\n"
+        "👥 <b>REFER & EARN</b>\n\n"
+        "🎁 Har successful referral par <b>₹20</b> referral balance\n"
+        "🔗 Apna unique referral link share karo\n"
+        "💰 Referral balance se eligible purchases me save karo\n\n"
+        f"🔗 <b>Your Referral Link:</b>\n"
         f"<code>{link}</code>\n\n"
-        f"ðŸŽ <b>Current Referral Balance:</b> â‚¹{user['ref_balance']}\n\n"
-        "âš ï¸ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta."
+        f"🎁 <b>Current Referral Balance:</b> ₹{user['ref_balance']}\n\n"
+        "⚠️ Referral balance withdraw/transfer/cash-out nahi kiya ja sakta."
     )
 
     banner_path = "referral_banner.png"
@@ -991,14 +991,14 @@ def show_orders(message):
     if orders is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Orders database unavailable."
+            "⚠️ Orders database unavailable."
         )
         return
 
     if not orders:
         bot.send_message(
             message.chat.id,
-            "ðŸ“œ <b>My Orders</b>\n\n"
+            "📜 <b>My Orders</b>\n\n"
             "Abhi koi order nahi hai.",
             parse_mode="HTML"
         )
@@ -1008,7 +1008,7 @@ def show_orders(message):
     orders.reverse()
 
     lines = [
-        "ðŸ“œ <b>My Orders</b>",
+        "📜 <b>My Orders</b>",
         ""
     ]
 
@@ -1016,16 +1016,16 @@ def show_orders(message):
         coupon_text = ""
 
         if order["coupon"] and order["coupon"] != "-":
-            coupon_text = f"\nðŸŽŸ Coupon: {order['coupon']}"
+            coupon_text = f"\n🎟 Coupon: {order['coupon']}"
 
         lines.append(
-            f"ðŸ§¾ <b>{order['order_id']}</b>\n"
-            f"ðŸ“¦ {order['product_name']}\n"
-            f"ðŸ’° â‚¹{order['price']}\n"
-            f"ðŸ“… {order['date']}\n"
-            f"ðŸ“Œ {order['status']}"
+            f"🧾 <b>{order['order_id']}</b>\n"
+            f"📦 {order['product_name']}\n"
+            f"💰 ₹{order['price']}\n"
+            f"📅 {order['date']}\n"
+            f"📌 {order['status']}"
             f"{coupon_text}\n"
-            f"ðŸ”‘ <code>/access {order['order_id']}</code>\n"
+            f"🔑 <code>/access {order['order_id']}</code>\n"
         )
 
     bot.send_message(
@@ -1065,7 +1065,7 @@ def send_purchase_confirmation(
         if now_ts - previous_ts < PURCHASE_GUARD_SECONDS:
             bot.send_message(
                 message.chat.id,
-                "âš ï¸ Ye purchase request abhi process ho rahi hai. "
+                "⚠️ Ye purchase request abhi process ho rahi hai. "
                 "Duplicate order nahi banaya gaya."
             )
             return
@@ -1090,7 +1090,7 @@ def send_purchase_confirmation(
     if not product:
         bot.send_message(
             message.chat.id,
-            "âŒ Invalid product."
+            "❌ Invalid product."
         )
         return
 
@@ -1104,7 +1104,7 @@ def send_purchase_confirmation(
     if users is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Balance database unavailable.\n"
+            "⚠️ Balance database unavailable.\n"
             "Purchase cancelled."
         )
         return
@@ -1131,14 +1131,14 @@ def send_purchase_confirmation(
         if not coupon:
             bot.send_message(
                 message.chat.id,
-                "âŒ Coupon invalid ya disabled hai."
+                "❌ Coupon invalid ya disabled hai."
             )
             return
 
         if coupon.get("active", 0) != 1:
             bot.send_message(
                 message.chat.id,
-                "âŒ Coupon inactive hai."
+                "❌ Coupon inactive hai."
             )
             return
 
@@ -1148,7 +1148,7 @@ def send_purchase_confirmation(
         if max_uses > 0 and used >= max_uses:
             bot.send_message(
                 message.chat.id,
-                "âŒ Coupon usage limit complete ho gayi."
+                "❌ Coupon usage limit complete ho gayi."
             )
             return
 
@@ -1201,14 +1201,14 @@ def send_purchase_confirmation(
     if main_balance < main_balance_needed:
         bot.send_message(
             message.chat.id,
-            "âŒ <b>Insufficient Balance</b>\n\n"
-            f"ðŸ“¦ Product: {product['name']}\n"
-            f"ðŸ’° Product Price: â‚¹{original_price}\n"
-            f"ðŸŽŸ Coupon Discount: â‚¹{coupon_discount}\n"
-            f"ðŸ’³ After Coupon: â‚¹{price_after_coupon}\n"
-            f"ðŸŽ Referral Used: â‚¹{referral_used}\n"
-            f"ðŸ’µ Main Balance Required: â‚¹{main_balance_needed}\n"
-            f"ðŸ’° Your Main Balance: â‚¹{main_balance}",
+            "❌ <b>Insufficient Balance</b>\n\n"
+            f"📦 Product: {product['name']}\n"
+            f"💰 Product Price: ₹{original_price}\n"
+            f"🎟 Coupon Discount: ₹{coupon_discount}\n"
+            f"💳 After Coupon: ₹{price_after_coupon}\n"
+            f"🎁 Referral Used: ₹{referral_used}\n"
+            f"💵 Main Balance Required: ₹{main_balance_needed}\n"
+            f"💰 Your Main Balance: ₹{main_balance}",
             parse_mode="HTML"
         )
         return
@@ -1228,7 +1228,7 @@ def send_purchase_confirmation(
     if not invite_link:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Product access link generate nahi ho saka.\n"
+            "⚠️ Product access link generate nahi ho saka.\n"
             "Balance deduct nahi hua.\n"
             "Please try again later."
         )
@@ -1261,7 +1261,7 @@ def send_purchase_confirmation(
 
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Balance update failed.\n"
+            "⚠️ Balance update failed.\n"
             "Purchase cancelled. Please try again."
         )
         return
@@ -1318,7 +1318,7 @@ def send_purchase_confirmation(
 
     markup.add(
         types.InlineKeyboardButton(
-            "ðŸŸ¢ JOIN GROUP ðŸŸ¢",
+            "🟢 JOIN GROUP 🟢",
             url=invite_link
         )
     )
@@ -1327,22 +1327,22 @@ def send_purchase_confirmation(
 
     if coupon:
         coupon_text = (
-            f"\nðŸŽŸ Coupon: {coupon_code_clean}"
-            f"\nðŸ’¸ Discount: â‚¹{coupon_discount}"
+            f"\n🎟 Coupon: {coupon_code_clean}"
+            f"\n💸 Discount: ₹{coupon_discount}"
         )
 
     bot.send_message(
         message.chat.id,
-        "âœ… <b>Purchase Successful!</b>\n\n"
-        f"ðŸ§¾ Order ID: <code>{order_id}</code>\n"
-        f"ðŸ“¦ Product: {product['name']}\n"
-        f"ðŸ’° Original Price: â‚¹{original_price}"
+        "✅ <b>Purchase Successful!</b>\n\n"
+        f"🧾 Order ID: <code>{order_id}</code>\n"
+        f"📦 Product: {product['name']}\n"
+        f"💰 Original Price: ₹{original_price}"
         f"{coupon_text}\n"
-        f"ðŸŽ Referral Used: â‚¹{referral_used}\n"
-        f"ðŸ’³ Paid From Main Balance: â‚¹{main_balance_needed}\n\n"
-        "ðŸ” Your private access link is ready.\n"
-        "â± Link expires in 24 hours.\n"
-        "ðŸ‘¤ Link can be used by 1 member only.",
+        f"🎁 Referral Used: ₹{referral_used}\n"
+        f"💳 Paid From Main Balance: ₹{main_balance_needed}\n\n"
+        "🔐 Your private access link is ready.\n"
+        "⏱ Link expires in 24 hours.\n"
+        "👤 Link can be used by 1 member only.",
         parse_mode="HTML",
         reply_markup=markup
     )
@@ -1368,7 +1368,7 @@ def buy_command(message):
     if len(parts) < 2:
         bot.send_message(
             message.chat.id,
-            "ðŸ› Hacks menu se product select karo.",
+            "🛍 Hacks menu se product select karo.",
             reply_markup=products_menu()
         )
         return
@@ -1378,7 +1378,7 @@ def buy_command(message):
     if product_id not in PRODUCTS:
         bot.send_message(
             message.chat.id,
-            "âŒ Product not found."
+            "❌ Product not found."
         )
         return
 
@@ -1423,7 +1423,7 @@ def access_order(message):
     if orders is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Orders database unavailable."
+            "⚠️ Orders database unavailable."
         )
         return
 
@@ -1437,7 +1437,7 @@ def access_order(message):
     if not found:
         bot.send_message(
             message.chat.id,
-            "âŒ Order not found."
+            "❌ Order not found."
         )
         return
 
@@ -1446,7 +1446,7 @@ def access_order(message):
     if product_id not in PRODUCTS:
         bot.send_message(
             message.chat.id,
-            "âŒ Product no longer available."
+            "❌ Product no longer available."
         )
         return
 
@@ -1458,7 +1458,7 @@ def access_order(message):
     if not invite_link:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Fresh access link generate nahi ho saka."
+            "⚠️ Fresh access link generate nahi ho saka."
         )
         return
 
@@ -1466,18 +1466,18 @@ def access_order(message):
 
     markup.add(
         types.InlineKeyboardButton(
-            "ðŸŸ¢ JOIN GROUP ðŸŸ¢",
+            "🟢 JOIN GROUP 🟢",
             url=invite_link
         )
     )
 
     bot.send_message(
         message.chat.id,
-        "ðŸ” <b>Fresh Access Link</b>\n\n"
-        f"ðŸ§¾ Order: <code>{found['order_id']}</code>\n"
-        f"ðŸ“¦ {found['product_name']}\n\n"
-        "â± Link valid for 24 hours.\n"
-        "ðŸ‘¤ One member only.",
+        "🔐 <b>Fresh Access Link</b>\n\n"
+        f"🧾 Order: <code>{found['order_id']}</code>\n"
+        f"📦 {found['product_name']}\n\n"
+        "⏱ Link valid for 24 hours.\n"
+        "👤 One member only.",
         parse_mode="HTML",
         reply_markup=markup
     )
@@ -1489,7 +1489,7 @@ def access_order(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸŽŸ Apply Coupon"
+        message.text == "🎟 Apply Coupon"
 )
 def apply_coupon_start(message):
     if not require_join(message):
@@ -1501,7 +1501,7 @@ def apply_coupon_start(message):
 
     bot.send_message(
         message.chat.id,
-        "ðŸŽŸ <b>Enter Coupon Code</b>\n\n"
+        "🎟 <b>Enter Coupon Code</b>\n\n"
         "Example:\n"
         "<code>SPEED20</code>\n\n"
         "Cancel karne ke liye /cancel bhejo.",
@@ -1531,7 +1531,7 @@ def handle_coupon_state(message):
 
         bot.send_message(
             message.chat.id,
-            "âŒ Coupon cancelled.",
+            "❌ Coupon cancelled.",
             reply_markup=products_menu()
         )
         return True
@@ -1541,7 +1541,7 @@ def handle_coupon_state(message):
     if not coupon:
         bot.send_message(
             message.chat.id,
-            "âŒ Invalid coupon.\n"
+            "❌ Invalid coupon.\n"
             "Dobara code bhejo ya /cancel."
         )
         return True
@@ -1549,7 +1549,7 @@ def handle_coupon_state(message):
     if coupon.get("active", 0) != 1:
         bot.send_message(
             message.chat.id,
-            "âŒ Ye coupon inactive hai."
+            "❌ Ye coupon inactive hai."
         )
         return True
 
@@ -1560,7 +1560,7 @@ def handle_coupon_state(message):
     ):
         bot.send_message(
             message.chat.id,
-            "âŒ Coupon usage limit complete hai."
+            "❌ Coupon usage limit complete hai."
         )
         return True
 
@@ -1571,9 +1571,9 @@ def handle_coupon_state(message):
 
     bot.send_message(
         message.chat.id,
-        f"âœ… Coupon <b>{code}</b> available hai.\n\n"
-        f"ðŸŽŸ Discount: {coupon['pct']}%\n"
-        f"ðŸ“Š Used: {coupon['used']}/{coupon['max']}\n\n"
+        f"✅ Coupon <b>{code}</b> available hai.\n\n"
+        f"🎟 Discount: {coupon['pct']}%\n"
+        f"📊 Used: {coupon['used']}/{coupon['max']}\n\n"
         "Ab product select karo.\n"
         "Coupon purchase ke time automatically apply karne ke liye "
         "hidden command bhi available hai.",
@@ -1662,7 +1662,7 @@ def add_funds_start(message):
 
     bot.send_message(
         message.chat.id,
-        "ðŸ’³ <b>Add Funds</b>\n\n"
+        "💳 <b>Add Funds</b>\n\n"
         "Kitna amount add karna hai?\n\n"
         "Example: <code>500</code>\n\n"
         "Cancel: /cancel",
@@ -1679,14 +1679,14 @@ def send_payment_instructions(message, amount):
     qr_path = "qr.jpg"
 
     text = (
-        "ðŸ’³ <b>Payment Instructions</b>\n\n"
-        f"ðŸ’° Amount: <b>â‚¹{amount}</b>\n\n"
-        "1ï¸âƒ£ Neeche QR scan karke payment karo.\n"
-        "2ï¸âƒ£ Payment ke baad UTR / Transaction ID "
+        "💳 <b>Payment Instructions</b>\n\n"
+        f"💰 Amount: <b>₹{amount}</b>\n\n"
+        "1️⃣ Neeche QR scan karke payment karo.\n"
+        "2️⃣ Payment ke baad UTR / Transaction ID "
         "ya payment screenshot bhejo.\n"
-        "3ï¸âƒ£ Admin verification ke baad balance add hoga.\n\n"
-        "ðŸ‘‘ Payment Help: @SpeedFistt\n\n"
-        "âš ï¸ Payment karne se pehle amount verify kar lena."
+        "3️⃣ Admin verification ke baad balance add hoga.\n\n"
+        "👑 Payment Help: @SpeedFistt\n\n"
+        "⚠️ Payment karne se pehle amount verify kar lena."
     )
 
     try:
@@ -1701,7 +1701,7 @@ def send_payment_instructions(message, amount):
         else:
             bot.send_message(
                 message.chat.id,
-                text + "\n\nâš ï¸ QR file abhi available nahi hai.",
+                text + "\n\n⚠️ QR file abhi available nahi hai.",
                 parse_mode="HTML"
             )
 
@@ -1714,9 +1714,9 @@ def send_payment_instructions(message, amount):
 
     bot.send_message(
         message.chat.id,
-        "ðŸ“¸ Payment proof bhejo:\n"
-        "â€¢ UTR / Transaction ID text mein\n"
-        "â€¢ Ya screenshot/photo\n\n"
+        "📸 Payment proof bhejo:\n"
+        "• UTR / Transaction ID text mein\n"
+        "• Ya screenshot/photo\n\n"
         "Cancel: /cancel"
     )
 
@@ -1736,7 +1736,7 @@ def handle_add_funds_amount(message):
 
         bot.send_message(
             message.chat.id,
-            "âŒ Add Funds cancelled.",
+            "❌ Add Funds cancelled.",
             reply_markup=main_menu(user_id)
         )
         return True
@@ -1746,7 +1746,7 @@ def handle_add_funds_amount(message):
     if amount <= 0:
         bot.send_message(
             message.chat.id,
-            "âŒ Valid amount bhejo.\n"
+            "❌ Valid amount bhejo.\n"
             "Example: 500"
         )
         return True
@@ -1754,7 +1754,7 @@ def handle_add_funds_amount(message):
     if amount > 100000:
         bot.send_message(
             message.chat.id,
-            "âŒ Maximum single payment â‚¹100000 hai."
+            "❌ Maximum single payment ₹100000 hai."
         )
         return True
 
@@ -1775,7 +1775,7 @@ def handle_add_funds_proof(message):
     amount = safe_int(state.get("amount"))
     if amount <= 0:
         user_states.pop(user_id, None)
-        bot.send_message(message.chat.id, "âš ï¸ Payment request expired. Please start Add Funds again.")
+        bot.send_message(message.chat.id, "⚠️ Payment request expired. Please start Add Funds again.")
         return True
 
     request_id = str(int(time.time() * 1000))
@@ -1784,16 +1784,16 @@ def handle_add_funds_proof(message):
     try:
         markup = types.InlineKeyboardMarkup()
         markup.row(
-            types.InlineKeyboardButton("âœ… Approve", callback_data=f"fund_approve:{user_id}:{request_id}"),
-            types.InlineKeyboardButton("âŒ Decline", callback_data=f"fund_decline:{user_id}:{request_id}")
+            types.InlineKeyboardButton("✅ Approve", callback_data=f"fund_approve:{user_id}:{request_id}"),
+            types.InlineKeyboardButton("❌ Decline", callback_data=f"fund_decline:{user_id}:{request_id}")
         )
 
         bot.send_message(
             ADMIN_ID,
-            "ðŸ’³ <b>NEW FUNDING REQUEST</b>\n\n"
-            f"ðŸ‘¤ User ID: <code>{user_id}</code>\n"
-            f"ðŸ’° Amount: â‚¹{amount}\n"
-            f"ðŸ“… Time: {now_str()}\n\n"
+            "💳 <b>NEW FUNDING REQUEST</b>\n\n"
+            f"👤 User ID: <code>{user_id}</code>\n"
+            f"💰 Amount: ₹{amount}\n"
+            f"📅 Time: {now_str()}\n\n"
             "Payment proof neeche attached hai.\n"
             "Verify karke button use karein:",
             parse_mode="HTML", reply_markup=markup
@@ -1801,16 +1801,16 @@ def handle_add_funds_proof(message):
         bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
         bot.send_message(
             message.chat.id,
-            "âœ… Payment proof received.\n\n"
-            f"ðŸ’° Amount: â‚¹{amount}\n"
-            "ðŸ‘¨â€ðŸ’¼ Admin verification pending hai.\n\n"
+            "✅ Payment proof received.\n\n"
+            f"💰 Amount: ₹{amount}\n"
+            "👨‍💼 Admin verification pending hai.\n\n"
             "Verification ke baad balance update ho jayega."
         )
         user_states.pop(user_id, None)
     except Exception:
         pending_funding.pop((user_id, request_id), None)
         logging.exception("FUNDING PROOF ERROR")
-        bot.send_message(message.chat.id, "âš ï¸ Proof send nahi ho saka.\nPlease try again.")
+        bot.send_message(message.chat.id, "⚠️ Proof send nahi ho saka.\nPlease try again.")
     return True
 
 
@@ -1823,12 +1823,12 @@ def handle_add_funds_proof(message):
 )
 def funding_decision_callback(call):
     if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "âŒ Admin only.", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ Admin only.", show_alert=True)
         return
 
     parts = call.data.split(":")
     if len(parts) != 3:
-        bot.answer_callback_query(call.id, "âš ï¸ Invalid request.", show_alert=True)
+        bot.answer_callback_query(call.id, "⚠️ Invalid request.", show_alert=True)
         return
 
     action, user_id_text, request_id = parts
@@ -1836,7 +1836,7 @@ def funding_decision_callback(call):
     request = pending_funding.get((target_user_id, request_id))
 
     if not request:
-        bot.answer_callback_query(call.id, "âš ï¸ Request already processed or expired.", show_alert=True)
+        bot.answer_callback_query(call.id, "⚠️ Request already processed or expired.", show_alert=True)
         return
 
     amount = safe_int(request.get("amount"))
@@ -1844,11 +1844,11 @@ def funding_decision_callback(call):
     if action == "fund_approve":
         success, result = admin_add_balance(target_user_id, amount)
         if not success:
-            bot.answer_callback_query(call.id, f"âŒ {result}", show_alert=True)
+            bot.answer_callback_query(call.id, f"❌ {result}", show_alert=True)
             return
 
         pending_funding.pop((target_user_id, request_id), None)
-        bot.answer_callback_query(call.id, "âœ… Payment approved.", show_alert=True)
+        bot.answer_callback_query(call.id, "✅ Payment approved.", show_alert=True)
         try:
             bot.edit_message_reply_markup(ADMIN_ID, call.message.message_id, reply_markup=None)
         except Exception:
@@ -1856,16 +1856,16 @@ def funding_decision_callback(call):
         try:
             bot.send_message(
                 target_user_id,
-                "âœ… <b>Payment Approved!</b>\n\n"
-                f"ðŸ’° â‚¹{amount} balance me add kar diya gaya hai.\n"
-                f"ðŸ’³ Current Balance: â‚¹{result}", parse_mode="HTML"
+                "✅ <b>Payment Approved!</b>\n\n"
+                f"💰 ₹{amount} balance me add kar diya gaya hai.\n"
+                f"💳 Current Balance: ₹{result}", parse_mode="HTML"
             )
         except Exception:
             logging.exception("FUNDING APPROVE USER NOTIFY ERROR")
         return
 
     pending_funding.pop((target_user_id, request_id), None)
-    bot.answer_callback_query(call.id, "âŒ Payment declined.", show_alert=True)
+    bot.answer_callback_query(call.id, "❌ Payment declined.", show_alert=True)
     try:
         bot.edit_message_reply_markup(ADMIN_ID, call.message.message_id, reply_markup=None)
     except Exception:
@@ -1873,8 +1873,8 @@ def funding_decision_callback(call):
     try:
         bot.send_message(
             target_user_id,
-            "âŒ <b>Payment Declined</b>\n\n"
-            f"ðŸ’° Requested Amount: â‚¹{amount}\n"
+            "❌ <b>Payment Declined</b>\n\n"
+            f"💰 Requested Amount: ₹{amount}\n"
             "Payment proof verify nahi ho saka.\n\n"
             "Agar payment genuinely kiya hai, correct UTR/screenshot ke saath dobara Add Funds request bhejo.",
             parse_mode="HTML"
@@ -1911,7 +1911,7 @@ def admin_add_command(message):
     if not is_admin(message.from_user.id):
         bot.send_message(
             message.chat.id,
-            "âŒ Admin only."
+            "❌ Admin only."
         )
         return
 
@@ -1934,14 +1934,14 @@ def admin_add_command(message):
     if target_user_id <= 0:
         bot.send_message(
             message.chat.id,
-            "âŒ Invalid User ID."
+            "❌ Invalid User ID."
         )
         return
 
     if amount <= 0:
         bot.send_message(
             message.chat.id,
-            "âŒ Invalid amount."
+            "❌ Invalid amount."
         )
         return
 
@@ -1953,7 +1953,7 @@ def admin_add_command(message):
     if not success:
         bot.send_message(
             message.chat.id,
-            f"âŒ {result}"
+            f"❌ {result}"
         )
         return
 
@@ -1965,10 +1965,10 @@ def admin_add_command(message):
 
     bot.send_message(
         message.chat.id,
-        "âœ… <b>Balance Added</b>\n\n"
-        f"ðŸ‘¤ User ID: <code>{target_user_id}</code>\n"
-        f"ðŸ’° Added: â‚¹{amount}\n"
-        f"ðŸ’³ New Balance: â‚¹{result}",
+        "✅ <b>Balance Added</b>\n\n"
+        f"👤 User ID: <code>{target_user_id}</code>\n"
+        f"💰 Added: ₹{amount}\n"
+        f"💳 New Balance: ₹{result}",
         parse_mode="HTML"
     )
 
@@ -1976,9 +1976,9 @@ def admin_add_command(message):
     try:
         bot.send_message(
             target_user_id,
-            "ðŸŽ‰ <b>Balance Updated</b>\n\n"
-            f"ðŸ’° Added: â‚¹{amount}\n"
-            f"ðŸ’³ New Balance: â‚¹{result}",
+            "🎉 <b>Balance Updated</b>\n\n"
+            f"💰 Added: ₹{amount}\n"
+            f"💳 New Balance: ₹{result}",
             parse_mode="HTML"
         )
     except Exception:
@@ -1996,14 +1996,14 @@ def show_admin_panel(message):
     if not is_admin(message.from_user.id):
         bot.send_message(
             message.chat.id,
-            "âŒ Admin only."
+            "❌ Admin only."
         )
         return
 
     bot.send_message(
         message.chat.id,
-        "ðŸ‘¨â€ðŸ’¼ <b>Admin Panel</b>\n\n"
-        "ðŸ‘‘ Owner: @SpeedFistt\n\n"
+        "👨‍💼 <b>Admin Panel</b>\n\n"
+        "👑 Owner: @SpeedFistt\n\n"
         "Neeche option select karo.",
         parse_mode="HTML",
         reply_markup=admin_menu()
@@ -2024,7 +2024,7 @@ def admin_add_balance_start(message):
 
     bot.send_message(
         message.chat.id,
-        "ðŸ’³ <b>Add Balance</b>\n\n"
+        "💳 <b>Add Balance</b>\n\n"
         "Format bhejo:\n"
         "<code>USER_ID AMOUNT</code>\n\n"
         "Example:\n"
@@ -2050,7 +2050,7 @@ def handle_admin_add_state(message):
 
         bot.send_message(
             message.chat.id,
-            "âŒ Cancelled.",
+            "❌ Cancelled.",
             reply_markup=admin_menu()
         )
         return True
@@ -2060,7 +2060,7 @@ def handle_admin_add_state(message):
     if len(parts) != 2:
         bot.send_message(
             message.chat.id,
-            "âŒ Format:\n"
+            "❌ Format:\n"
             "<code>USER_ID AMOUNT</code>",
             parse_mode="HTML"
         )
@@ -2072,7 +2072,7 @@ def handle_admin_add_state(message):
     if target_user_id <= 0 or amount <= 0:
         bot.send_message(
             message.chat.id,
-            "âŒ Invalid User ID ya amount."
+            "❌ Invalid User ID ya amount."
         )
         return True
 
@@ -2084,7 +2084,7 @@ def handle_admin_add_state(message):
     if not success:
         bot.send_message(
             message.chat.id,
-            f"âŒ {result}"
+            f"❌ {result}"
         )
         return True
 
@@ -2095,10 +2095,10 @@ def handle_admin_add_state(message):
 
     bot.send_message(
         message.chat.id,
-        "âœ… <b>Balance Added</b>\n\n"
-        f"ðŸ‘¤ User: <code>{target_user_id}</code>\n"
-        f"ðŸ’° Added: â‚¹{amount}\n"
-        f"ðŸ’³ New Balance: â‚¹{result}",
+        "✅ <b>Balance Added</b>\n\n"
+        f"👤 User: <code>{target_user_id}</code>\n"
+        f"💰 Added: ₹{amount}\n"
+        f"💳 New Balance: ₹{result}",
         parse_mode="HTML",
         reply_markup=admin_menu()
     )
@@ -2106,9 +2106,9 @@ def handle_admin_add_state(message):
     try:
         bot.send_message(
             target_user_id,
-            "ðŸŽ‰ <b>Balance Added</b>\n\n"
-            f"ðŸ’° Amount: â‚¹{amount}\n"
-            f"ðŸ’³ New Balance: â‚¹{result}",
+            "🎉 <b>Balance Added</b>\n\n"
+            f"💰 Amount: ₹{amount}\n"
+            f"💳 New Balance: ₹{result}",
             parse_mode="HTML"
         )
     except Exception:
@@ -2125,7 +2125,7 @@ def show_statistics(message):
     if not is_admin(message.from_user.id):
         bot.send_message(
             message.chat.id,
-            "âŒ Admin only."
+            "❌ Admin only."
         )
         return
 
@@ -2134,7 +2134,7 @@ def show_statistics(message):
     if users is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Balance database unavailable."
+            "⚠️ Balance database unavailable."
         )
         return
 
@@ -2143,7 +2143,7 @@ def show_statistics(message):
     if orders_text is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Orders database unavailable."
+            "⚠️ Orders database unavailable."
         )
         return
 
@@ -2220,17 +2220,17 @@ def show_statistics(message):
 
     bot.send_message(
         message.chat.id,
-        "ðŸ“Š <b>Statistics</b>\n\n"
-        f"ðŸ‘¥ Users: {total_users}\n"
-        f"ðŸ“¦ Orders: {total_orders}\n"
-        f"ðŸ’° Total Sales: â‚¹{total_sales}\n"
-        f"ðŸ“… Today: {today_orders} orders / â‚¹{today_sales}\n"
-        f"ðŸ“ˆ Last 7 Days: {week_orders} orders / â‚¹{week_sales}\n"
-        f"ðŸ’³ User Main Balances: â‚¹{total_main_balance}\n"
-        f"ðŸŽ Referral Balances: â‚¹{total_ref_balance}\n\n"
-        f"1ï¸âƒ£ Product A Orders: {product_counts[1]}\n"
-        f"2ï¸âƒ£ Product B Orders: {product_counts[2]}\n"
-        f"3ï¸âƒ£ Product C Orders: {product_counts[3]}",
+        "📊 <b>Statistics</b>\n\n"
+        f"👥 Users: {total_users}\n"
+        f"📦 Orders: {total_orders}\n"
+        f"💰 Total Sales: ₹{total_sales}\n"
+        f"📅 Today: {today_orders} orders / ₹{today_sales}\n"
+        f"📈 Last 7 Days: {week_orders} orders / ₹{week_sales}\n"
+        f"💳 User Main Balances: ₹{total_main_balance}\n"
+        f"🎁 Referral Balances: ₹{total_ref_balance}\n\n"
+        f"1️⃣ Product A Orders: {product_counts[1]}\n"
+        f"2️⃣ Product B Orders: {product_counts[2]}\n"
+        f"3️⃣ Product C Orders: {product_counts[3]}",
         parse_mode="HTML"
     )
 
@@ -2294,7 +2294,7 @@ def create_coupon_command(message):
     if not is_admin(message.from_user.id):
         bot.send_message(
             message.chat.id,
-            "âŒ Admin only."
+            "❌ Admin only."
         )
         return
 
@@ -2324,16 +2324,16 @@ def create_coupon_command(message):
     if success:
         bot.send_message(
             message.chat.id,
-            "âœ… <b>Coupon Created</b>\n\n"
-            f"ðŸŽŸ Code: <code>{code.upper()}</code>\n"
-            f"ðŸ’¸ Discount: {pct}%\n"
-            f"ðŸ“Š Max Uses: {max_uses}",
+            "✅ <b>Coupon Created</b>\n\n"
+            f"🎟 Code: <code>{code.upper()}</code>\n"
+            f"💸 Discount: {pct}%\n"
+            f"📊 Max Uses: {max_uses}",
             parse_mode="HTML"
         )
     else:
         bot.send_message(
             message.chat.id,
-            f"âŒ {result}"
+            f"❌ {result}"
         )
 
 
@@ -2342,7 +2342,7 @@ def list_coupons_command(message):
     if not is_admin(message.from_user.id):
         bot.send_message(
             message.chat.id,
-            "âŒ Admin only."
+            "❌ Admin only."
         )
         return
 
@@ -2351,7 +2351,7 @@ def list_coupons_command(message):
     if text is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Orders database unavailable."
+            "⚠️ Orders database unavailable."
         )
         return
 
@@ -2360,27 +2360,27 @@ def list_coupons_command(message):
     if not coupons:
         bot.send_message(
             message.chat.id,
-            "ðŸŽŸ No coupons found."
+            "🎟 No coupons found."
         )
         return
 
     lines = [
-        "ðŸŽŸ <b>Coupons</b>",
+        "🎟 <b>Coupons</b>",
         ""
     ]
 
     for code, data in coupons.items():
         status = (
-            "ðŸŸ¢ ACTIVE"
+            "🟢 ACTIVE"
             if data["active"] == 1
-            else "ðŸ”´ DISABLED"
+            else "🔴 DISABLED"
         )
 
         lines.append(
-            f"ðŸŽŸ <code>{code}</code>\n"
-            f"ðŸ’¸ Discount: {data['pct']}%\n"
-            f"ðŸ“Š Used: {data['used']}/{data['max']}\n"
-            f"ðŸ“Œ {status}\n"
+            f"🎟 <code>{code}</code>\n"
+            f"💸 Discount: {data['pct']}%\n"
+            f"📊 Used: {data['used']}/{data['max']}\n"
+            f"📌 {status}\n"
         )
 
     bot.send_message(
@@ -2395,7 +2395,7 @@ def disable_coupon_command(message):
     if not is_admin(message.from_user.id):
         bot.send_message(
             message.chat.id,
-            "âŒ Admin only."
+            "❌ Admin only."
         )
         return
 
@@ -2417,7 +2417,7 @@ def disable_coupon_command(message):
     if text is None:
         bot.send_message(
             message.chat.id,
-            "âš ï¸ Orders database unavailable."
+            "⚠️ Orders database unavailable."
         )
         return
 
@@ -2441,20 +2441,20 @@ def disable_coupon_command(message):
     if not found:
         bot.send_message(
             message.chat.id,
-            "âŒ Coupon not found."
+            "❌ Coupon not found."
         )
         return
 
     if save_orders_db("\n".join(lines)):
         bot.send_message(
             message.chat.id,
-            f"âœ… Coupon <code>{code}</code> disabled.",
+            f"✅ Coupon <code>{code}</code> disabled.",
             parse_mode="HTML"
         )
     else:
         bot.send_message(
             message.chat.id,
-            "âŒ Database save failed."
+            "❌ Database save failed."
         )
 
 
@@ -2478,7 +2478,7 @@ def cancel_command(message):
 
     bot.send_message(
         message.chat.id,
-        "âŒ Current action cancelled.",
+        "❌ Current action cancelled.",
         reply_markup=markup
     )
 
@@ -2489,7 +2489,7 @@ def cancel_command(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ› Hacks"
+        message.text == "🛍 Hacks"
 )
 def products_button(message):
     if not require_join(message):
@@ -2506,7 +2506,7 @@ def products_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ’° Balance"
+        message.text == "💰 Balance"
 )
 def balance_button(message):
     if not require_join(message):
@@ -2524,7 +2524,7 @@ def balance_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ’³ Add Funds"
+        message.text == "💳 Add Funds"
 )
 def add_funds_button(message):
     add_funds_start(message)
@@ -2536,7 +2536,7 @@ def add_funds_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ“œ My Orders"
+        message.text == "📜 My Orders"
 )
 def orders_button(message):
     if not require_join(message):
@@ -2551,7 +2551,7 @@ def orders_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ‘¤ Profile"
+        message.text == "👤 Profile"
 )
 def profile_button(message):
     if not require_join(message):
@@ -2566,7 +2566,7 @@ def profile_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ‘¥ Referral"
+        message.text == "👥 Referral"
 )
 def referral_button(message):
     if not require_join(message):
@@ -2581,7 +2581,7 @@ def referral_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ‘¨â€ðŸ’¼ Admin Panel"
+        message.text == "👨‍💼 Admin Panel"
 )
 def admin_panel_button(message):
     show_admin_panel(message)
@@ -2593,7 +2593,7 @@ def admin_panel_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ’³ Add Balance"
+        message.text == "💳 Add Balance"
 )
 def admin_add_balance_button(message):
     admin_add_balance_start(message)
@@ -2605,7 +2605,7 @@ def admin_add_balance_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ“Š Statistics"
+        message.text == "📊 Statistics"
 )
 def statistics_button(message):
     show_statistics(message)
@@ -2617,7 +2617,7 @@ def statistics_button(message):
 
 @bot.message_handler(
     func=lambda message:
-        message.text == "ðŸ  Main Menu"
+        message.text == "🏠 Main Menu"
 )
 def main_menu_button(message):
     user_states.pop(
@@ -2630,7 +2630,7 @@ def main_menu_button(message):
 
     bot.send_message(
         message.chat.id,
-        "ðŸ  <b>Main Menu</b>",
+        "🏠 <b>Main Menu</b>",
         parse_mode="HTML",
         reply_markup=main_menu(
             message.from_user.id
@@ -2692,21 +2692,21 @@ def text_state_router(message):
     # Selected coupon + product purchase
     # -----------------------------------------------------
 
-    if text == "ðŸ›’ Buy Product 1":
+    if text == "🛒 Buy Product 1":
         purchase_from_button(
             message,
             1
         )
         return
 
-    if text == "ðŸ›’ Buy Product 2":
+    if text == "🛒 Buy Product 2":
         purchase_from_button(
             message,
             2
         )
         return
 
-    if text == "ðŸ›’ Buy Product 3":
+    if text == "🛒 Buy Product 3":
         purchase_from_button(
             message,
             3
@@ -2719,7 +2719,7 @@ def text_state_router(message):
 
     bot.send_message(
         message.chat.id,
-        "ðŸ‘‡ Menu se option select karo.",
+        "👇 Menu se option select karo.",
         reply_markup=main_menu(user_id)
     )
 
@@ -2774,7 +2774,7 @@ def products_command(message):
 def ping_command(message):
     bot.send_message(
         message.chat.id,
-        "ðŸ“ Pong!"
+        "🏓 Pong!"
     )
 
 @bot.message_handler(commands=["checkjoin"])
@@ -2782,7 +2782,7 @@ def checkjoin_command(message):
     user_id = message.from_user.id
 
     lines = [
-        "ðŸ” <b>Join Debug</b>",
+        "🔍 <b>Join Debug</b>",
         f"User ID: <code>{user_id}</code>",
         ""
     ]
@@ -2802,7 +2802,7 @@ def checkjoin_command(message):
         except Exception as e:
             lines.append(
                 f"{channel['name']}: "
-                f"âŒ <code>{str(e)[:250]}</code>"
+                f"❌ <code>{str(e)[:250]}</code>"
             )
 
     bot.send_message(
